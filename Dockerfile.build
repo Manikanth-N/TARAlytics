@@ -1,0 +1,42 @@
+# Builds a Windows .exe using Wine inside Docker (run on Linux host).
+# Usage:
+#   docker build -f Dockerfile.build -t taralytics-builder .
+#   docker run --rm -v "$(pwd)/dist:/out" taralytics-builder
+#   # Windows .exe will be at dist/TARAlytics/TARAlytics.exe
+
+FROM tobix/pywine:3.11
+
+WORKDIR /app
+
+# Copy project files
+COPY requirements.txt .
+COPY main.py .
+COPY TARAlytics.spec .
+COPY core/ core/
+COPY ui/ ui/
+COPY assets/ assets/
+
+# Wine needs a virtual display and proper env vars in Docker
+ENV WINEDEBUG=-all \
+    WINEARCH=win64 \
+    DISPLAY=:99
+
+# Install Python packages into the Wine Python environment
+RUN Xvfb :99 -screen 0 1024x768x16 & \
+    sleep 2 && \
+    wine pip install --no-cache-dir \
+        "PyQt6>=6.6.0" \
+        "pyqtgraph>=0.13.3" \
+        "PyOpenGL>=3.1.7" \
+        "numpy>=1.26.0" \
+        "pandas>=2.2.0" \
+        "cryptography>=42.0.0" \
+        "pyinstaller>=6.3.0"
+
+# Build the Windows exe via PyInstaller running under Wine
+RUN Xvfb :99 -screen 0 1024x768x16 & \
+    sleep 2 && \
+    wine python -m PyInstaller TARAlytics.spec --noconfirm --clean
+
+# Copy output to /out (mounted at runtime)
+CMD ["sh", "-c", "cp -r dist/TARAlytics /out/"]

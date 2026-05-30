@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.pyc
+
+# PyInstaller build artifacts
+build/
+dist/
+
+# Logs (keep directory, not contents)
+logs/*.BIN
+logs/*.bin
+logs/*.log
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp

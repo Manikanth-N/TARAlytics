@@ -1,0 +1,50 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:   # allow manual trigger from GitHub UI
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyQt6>=6.6.0 pyqtgraph>=0.13.3 PyOpenGL>=3.1.7 numpy>=1.26.0 pandas>=2.2.0 cryptography>=42.0.0 pyinstaller>=6.3.0
+
+      - name: Build with PyInstaller
+        run: |
+          python -m PyInstaller TARAlytics.spec --noconfirm --clean
+
+      - name: Zip the output folder
+        run: |
+          Compress-Archive -Path dist\TARAlytics\* -DestinationPath dist\TARAlytics-Windows.zip
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TARAlytics-Windows
+          path: dist\TARAlytics-Windows.zip
+          retention-days: 30
+
+      - name: Upload to release (on tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist\TARAlytics-Windows.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
