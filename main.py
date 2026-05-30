@@ -12,8 +12,8 @@ from ui.main_window import MainWindow
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName('ArduPilot Log Analyzer')
-    app.setOrganizationName('ArduPilotAnalyzer')
+    app.setApplicationName('TARAlytics Log Analyzer')
+    app.setOrganizationName('TARA UAV')
 
     icon_path = os.path.join(os.path.dirname(__file__), 'assets', 'icon.ico')
     if os.path.isfile(icon_path):
