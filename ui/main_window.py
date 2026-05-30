@@ -28,7 +28,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('ArduPilot Log Analyzer')
+        self.setWindowTitle('TARAlytics Log Analyzer')
         self.resize(1400, 900)
 
         self._bin_path = ''
@@ -37,7 +37,7 @@ class MainWindow(QMainWindow):
         self._raw_bytes = b''
         self._pubkey_str = None
 
-        self._settings = QSettings('ArduPilotAnalyzer', 'MainWindow')
+        self._settings = QSettings('TARAlyticsAnalyzer', 'MainWindow')
         self._bin_path = self._settings.value('bin_path', '')
         self._key_path = self._settings.value('key_path', '')
 
