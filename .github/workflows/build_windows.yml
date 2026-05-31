@@ -25,31 +25,23 @@ jobs:
       # ── 2. Version ───────────────────────────────────────────────────────────
       - name: Determine version
         id: version
-        shell: bash
+        shell: pwsh
         run: |
-          if [[ -n "${{ github.event.inputs.version }}" ]]; then
-            VERSION="${{ github.event.inputs.version }}"
-          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          else
-            VERSION=$(cat VERSION)
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Resolved version: $VERSION"
+          if ("${{ github.event.inputs.version }}" -ne "") {
+            $version = "${{ github.event.inputs.version }}"
+          } elseif ("$env:GITHUB_REF" -match "^refs/tags/v(.+)$") {
+            $version = $Matches[1]
+          } else {
+            $version = (Get-Content VERSION -Raw).Trim()
+          }
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "Resolved version: $version"
 
       # ── 3. Python ────────────────────────────────────────────────────────────
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~\AppData\Local\pip\Cache
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
 
       - name: Install Python dependencies
         run: |
@@ -58,37 +50,41 @@ jobs:
 
       # ── 4. PyInstaller ───────────────────────────────────────────────────────
       - name: Build app bundle with PyInstaller
-        run: |
-          python -m PyInstaller TARAlytics.spec --noconfirm --clean
+        run: python -m PyInstaller TARAlytics.spec --noconfirm --clean
 
       - name: Verify bundle exists
-        shell: bash
+        shell: pwsh
         run: |
-          if [ ! -f "dist/TARAlytics/TARAlytics.exe" ]; then
-            echo "ERROR: TARAlytics.exe not found in dist/TARAlytics/"
+          if (-not (Test-Path "dist\TARAlytics\TARAlytics.exe")) {
+            Write-Error "TARAlytics.exe not found in dist\TARAlytics\"
             exit 1
-          fi
-          echo "Bundle size: $(du -sh dist/TARAlytics/ | cut -f1)"
+          }
+          $size = (Get-Item "dist\TARAlytics\TARAlytics.exe").Length / 1MB
+          Write-Host "TARAlytics.exe: $([math]::Round($size, 1)) MB"
 
       # ── 5. Inno Setup installer ──────────────────────────────────────────────
       - name: Build installer with Inno Setup
-        shell: cmd
+        shell: pwsh
         run: |
-          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ^
-            /DAppVersion=${{ steps.version.outputs.VERSION }} ^
-            installer\TARAlytics.iss
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          $version = "${{ steps.version.outputs.VERSION }}"
+          Write-Host "Building installer version $version ..."
+          & $iscc "/DAppVersion=$version" "installer\TARAlytics.iss"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "ISCC.exe failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
 
       - name: Verify installer exists
-        shell: bash
+        shell: pwsh
         run: |
-          INSTALLER=$(ls dist/installer/TARAlytics_Setup_*.exe 2>/dev/null | head -1)
-          if [ -z "$INSTALLER" ]; then
-            echo "ERROR: Installer .exe not found in dist/installer/"
+          $installer = Get-Item "dist\installer\TARAlytics_Setup_*.exe" -ErrorAction SilentlyContinue
+          if (-not $installer) {
+            Write-Error "Installer .exe not found in dist\installer\"
             exit 1
-          fi
-          echo "Installer: $INSTALLER"
-          echo "Size: $(du -sh "$INSTALLER" | cut -f1)"
-          echo "INSTALLER_PATH=$INSTALLER" >> $GITHUB_ENV
+          }
+          $size = $installer.Length / 1MB
+          Write-Host "Installer: $($installer.Name) ($([math]::Round($size, 1)) MB)"
 
       # ── 6. Artifacts ─────────────────────────────────────────────────────────
       - name: Upload installer as artifact
@@ -98,7 +94,7 @@ jobs:
           path: dist\installer\TARAlytics_Setup_*.exe
           retention-days: 30
 
-      - name: Upload app bundle as artifact (zip)
+      - name: Upload app bundle as artifact
         uses: actions/upload-artifact@v4
         with:
           name: TARAlytics-Windows-Bundle-${{ steps.version.outputs.VERSION }}

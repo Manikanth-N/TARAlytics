@@ -54,20 +54,18 @@ SetupIconFile=..\assets\icon.ico
 UninstallDisplayIcon={app}\{#AppExeName}
 UninstallDisplayName={#AppName}
 
-; Compression — lzma2 gives best ratio for Python bundles
-Compression=lzma2/ultra64
+; Compression
+Compression=lzma2
 SolidCompression=yes
-LZMAUseSeparateProcess=yes
 
 ; UI
 WizardStyle=modern
-WizardSizePercent=110
 DisableWelcomePage=no
 DisableDirPage=no
 DisableProgramGroupPage=yes
 ShowLanguageDialog=no
 
-; Versioning
+; Version metadata embedded in the installer exe
 VersionInfoVersion={#AppVersion}
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription={#AppName} Setup
@@ -79,67 +77,31 @@ VersionInfoProductVersion={#AppVersion}
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 ; ─────────────────────────────────────────────────────────────────────────────
-[CustomMessages]
-; Shown on the welcome page below the big welcome header
-WelcomeLabel2=This will install [name/ver] on your computer.%n%n\
-All required components are included — Python runtime, Qt libraries, NumPy, %n\
-Pandas, and cryptography support — no additional software needed.%n%n\
-It is recommended that you close all other applications before continuing.
-
-; ─────────────────────────────────────────────────────────────────────────────
 [Tasks]
-; Desktop shortcut (opt-in — unchecked by default)
-Name: "desktopicon"; \
-     Description: "Create a &Desktop shortcut"; \
-     GroupDescription: "Additional shortcuts:"
+Name: "desktopicon"; Description: "Create a &Desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 ; ─────────────────────────────────────────────────────────────────────────────
 [Files]
-; Copy the entire PyInstaller output (Python runtime + all bundled libraries)
-Source: "{#AppSrcDir}\*"; \
-        DestDir: "{app}"; \
-        Flags: ignoreversion recursesubdirs createallsubdirs
+; Copy the entire PyInstaller bundle — Python runtime + Qt + NumPy + Pandas +
+; cryptography — all included. No additional software required on the target PC.
+Source: "{#AppSrcDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ─────────────────────────────────────────────────────────────────────────────
 [Icons]
-; Start Menu
-Name: "{group}\{#AppName}"; \
-      Filename: "{app}\{#AppExeName}"; \
-      WorkingDir: "{app}"; \
-      IconFilename: "{app}\{#AppExeName}"
-
-; Uninstall entry in Start Menu
-Name: "{group}\Uninstall {#AppShortName}"; \
-      Filename: "{uninstallexe}"
-
-; Desktop shortcut (only if task selected)
-Name: "{autodesktop}\{#AppName}"; \
-      Filename: "{app}\{#AppExeName}"; \
-      WorkingDir: "{app}"; \
-      IconFilename: "{app}\{#AppExeName}"; \
-      Tasks: desktopicon
+Name: "{group}\{#AppName}";                Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
+Name: "{group}\Uninstall {#AppShortName}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#AppName}";          Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 ; ─────────────────────────────────────────────────────────────────────────────
 [Run]
-; Offer to launch the app at the end of installation
-Filename: "{app}\{#AppExeName}"; \
-          Description: "Launch {#AppName} now"; \
-          Flags: nowait postinstall skipifsilent; \
-          WorkingDir: "{app}"
+Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName} now"; Flags: nowait postinstall skipifsilent; WorkingDir: "{app}"
 
 ; ─────────────────────────────────────────────────────────────────────────────
 [UninstallDelete]
-; Remove Qt / PyInstaller temp caches left by the app
 Type: filesandordirs; Name: "{localappdata}\{#AppShortName}\cache"
 Type: dirifempty;     Name: "{localappdata}\{#AppShortName}"
 
 ; ─────────────────────────────────────────────────────────────────────────────
 [Registry]
-; Write the install path so external tools can find the executable
-Root: HKLM; Subkey: "Software\{#AppPublisher}\{#AppShortName}"; \
-      ValueType: string; ValueName: "InstallPath"; \
-      ValueData: "{app}"; Flags: uninsdeletekey
-
-Root: HKLM; Subkey: "Software\{#AppPublisher}\{#AppShortName}"; \
-      ValueType: string; ValueName: "Version"; \
-      ValueData: "{#AppVersion}"
+Root: HKLM; Subkey: "Software\{#AppPublisher}\{#AppShortName}"; ValueType: string; ValueName: "InstallPath"; ValueData: "{app}"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\{#AppPublisher}\{#AppShortName}"; ValueType: string; ValueName: "Version";     ValueData: "{#AppVersion}"
