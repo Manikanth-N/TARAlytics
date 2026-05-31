@@ -53,10 +53,6 @@ class VerificationTab(QWidget):
         self._cards.update_ekf(data)
         self._cards.update_gps(data)
 
-        if self._raw:
-            result = signature_verifier.full_verify(self._raw, self._pubkey)
-            self._apply_verification(result)
-
     def set_pubkey(self, pubkey_str, key_path: str):
         self._pubkey = pubkey_str
         self._key_path = key_path

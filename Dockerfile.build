@@ -12,6 +12,7 @@ WORKDIR /app
 COPY requirements.txt .
 COPY main.py .
 COPY TARAlytics.spec .
+COPY VERSION .
 COPY core/ core/
 COPY ui/ ui/
 COPY assets/ assets/

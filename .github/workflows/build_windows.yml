@@ -1,4 +1,4 @@
-name: Build Windows EXE
+name: Build Windows Installer
 
 on:
   push:
@@ -6,45 +6,126 @@ on:
     tags: ['v*']
   pull_request:
     branches: [master, main]
-  workflow_dispatch:   # allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version override (e.g. 1.2.3) — leave blank to use VERSION file'
+        required: false
+        default: ''
 
 jobs:
-  build-windows:
+  build-installer:
     runs-on: windows-latest
 
     steps:
+      # ── 1. Source ────────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ── 2. Version ───────────────────────────────────────────────────────────
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION=$(cat VERSION)
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Resolved version: $VERSION"
+
+      # ── 3. Python ────────────────────────────────────────────────────────────
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install PyQt6>=6.6.0 pyqtgraph>=0.13.3 PyOpenGL>=3.1.7 numpy>=1.26.0 pandas>=2.2.0 cryptography>=42.0.0 pyinstaller>=6.3.0
+          pip install -r requirements.txt
 
-      - name: Build with PyInstaller
+      # ── 4. PyInstaller ───────────────────────────────────────────────────────
+      - name: Build app bundle with PyInstaller
         run: |
           python -m PyInstaller TARAlytics.spec --noconfirm --clean
 
-      - name: Zip the output folder
+      - name: Verify bundle exists
+        shell: bash
         run: |
-          Compress-Archive -Path dist\TARAlytics\* -DestinationPath dist\TARAlytics-Windows.zip
+          if [ ! -f "dist/TARAlytics/TARAlytics.exe" ]; then
+            echo "ERROR: TARAlytics.exe not found in dist/TARAlytics/"
+            exit 1
+          fi
+          echo "Bundle size: $(du -sh dist/TARAlytics/ | cut -f1)"
 
-      - name: Upload EXE artifact
+      # ── 5. Inno Setup installer ──────────────────────────────────────────────
+      - name: Build installer with Inno Setup
+        shell: cmd
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ^
+            /DAppVersion=${{ steps.version.outputs.VERSION }} ^
+            installer\TARAlytics.iss
+
+      - name: Verify installer exists
+        shell: bash
+        run: |
+          INSTALLER=$(ls dist/installer/TARAlytics_Setup_*.exe 2>/dev/null | head -1)
+          if [ -z "$INSTALLER" ]; then
+            echo "ERROR: Installer .exe not found in dist/installer/"
+            exit 1
+          fi
+          echo "Installer: $INSTALLER"
+          echo "Size: $(du -sh "$INSTALLER" | cut -f1)"
+          echo "INSTALLER_PATH=$INSTALLER" >> $GITHUB_ENV
+
+      # ── 6. Artifacts ─────────────────────────────────────────────────────────
+      - name: Upload installer as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TARAlytics-Windows
-          path: dist\TARAlytics-Windows.zip
+          name: TARAlytics-Windows-Installer-${{ steps.version.outputs.VERSION }}
+          path: dist\installer\TARAlytics_Setup_*.exe
           retention-days: 30
 
-      - name: Upload to release (on tag push)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload app bundle as artifact (zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: TARAlytics-Windows-Bundle-${{ steps.version.outputs.VERSION }}
+          path: dist\TARAlytics\
+          retention-days: 30
+
+      # ── 7. GitHub Release (tag pushes only) ──────────────────────────────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist\TARAlytics-Windows.zip
+          name: TARAlytics ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## TARAlytics ${{ steps.version.outputs.VERSION }}
+
+            ### Installation
+            1. Download **TARAlytics_Setup_${{ steps.version.outputs.VERSION }}.exe**
+            2. Run the installer — no additional software required.
+               Python, Qt, NumPy, Pandas, and all other components are bundled.
+            3. A Start Menu shortcut is created automatically.
+               An optional Desktop shortcut is available during setup.
+
+            ### System Requirements
+            - Windows 10 or later (64-bit)
+            - ~400 MB disk space
+          files: dist\installer\TARAlytics_Setup_*.exe
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

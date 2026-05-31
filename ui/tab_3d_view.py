@@ -1,3 +1,4 @@
+import time
 import numpy as np
 import math
 from PyQt6.QtWidgets import (
@@ -268,30 +269,17 @@ class View3DTab(QWidget):
         self._replay.set_range(t_min, t_max)
 
     def _add_ground_plane(self, east, north):
-        margin = 20.0
-        x_min = float(east.min()) - margin
-        x_max = float(east.max()) + margin
-        y_min = float(north.min()) - margin
-        y_max = float(north.max()) + margin
-
-        grid_size = 10.0
-        x_steps = int((x_max - x_min) / grid_size) + 1
-        y_steps = int((y_max - y_min) / grid_size) + 1
-
-        lines = []
-        for i in range(x_steps + 1):
-            x = x_min + i * grid_size
-            lines.append([[x, y_min, 0], [x, y_max, 0]])
-        for j in range(y_steps + 1):
-            y = y_min + j * grid_size
-            lines.append([[x_min, y, 0], [x_max, y, 0]])
-
-        color = (0.3, 0.3, 0.4, 0.3)
-        for line in lines:
-            pts = np.array(line, dtype=np.float32)
-            item = gl.GLLinePlotItem(pos=pts, color=color, width=1)
-            self._gl.addItem(item)
-            self._arrow_items.append(item)
+        w = max(float(east.max() - east.min()) + 40, 20)
+        h = max(float(north.max() - north.min()) + 40, 20)
+        cx = float((east.min() + east.max()) / 2)
+        cy = float((north.min() + north.max()) / 2)
+        grid = gl.GLGridItem()
+        grid.setSize(x=w, y=h)
+        grid.setSpacing(x=10, y=10)
+        grid.setColor((77, 77, 102, 77))
+        grid.translate(cx, cy, 0)
+        self._gl.addItem(grid)
+        self._arrow_items.append(grid)
 
     def _add_heading_arrows(self, data, east, north, up, times, bbox_diag=1.0):
         att_df = data.get('ATT')
@@ -401,10 +389,12 @@ class View3DTab(QWidget):
 
     def set_time(self, t_abs: float):
         """Called from plotter crosshair movement to sync 3D replay."""
-        try:
-            self._controls.set_time(t_abs)
-        except Exception:
-            self._on_time_changed(t_abs)
+        now = time.monotonic()
+        if now - getattr(self, '_last_set_time', 0.0) < 0.033:
+            return
+        self._last_set_time = now
+        self._replay.set_time(t_abs)
+        self._on_time_changed(t_abs)
 
     def _reset_camera(self):
         if not GL_AVAILABLE:
@@ -450,19 +440,16 @@ def _current_mode(data: dict, t: float) -> str:
 
 
 def _esc_avg(data: dict, t: float) -> float:
-    df = data.get('ESCX')
-    if df is None or df.empty:
-        return 0.0
-    col = None
-    for c in ('outpct', 'Outpct', 'OutPct'):
-        if c in df.columns:
-            col = c
-            break
-    if col is None:
-        return 0.0
-    times = df['TimeS'].values.astype(float)
-    vals = df[col].values.astype(float)
-    return _interp(times, vals, t)
+    vals = []
+    for key, df in data.items():
+        if not key.startswith('ESCX[') or df.empty or 'TimeS' not in df.columns:
+            continue
+        col = next((c for c in ('outpct', 'Outpct', 'OutPct') if c in df.columns), None)
+        if col is None:
+            continue
+        v = _interp(df['TimeS'].values.astype(float), df[col].values.astype(float), t)
+        vals.append(v)
+    return float(np.mean(vals)) if vals else 0.0
 
 
 def pg_vector(x, y, z):

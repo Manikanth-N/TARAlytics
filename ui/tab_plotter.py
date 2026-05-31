@@ -1,4 +1,5 @@
 import re
+import time
 import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtWidgets import (
@@ -6,7 +7,7 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QPushButton,
     QLabel, QColorDialog, QFileDialog, QApplication, QMenu,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF
+from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF, QTimer
 from PyQt6.QtGui import QColor, QBrush, QAction, QFont
 
 from core.colors import signal_color, SEVERITY_COLORS
@@ -164,6 +165,18 @@ class PlotterTab(QWidget):
         self._event_items: list[dict] = []  # {ts, cat, line, visible}
         self._cat_visible: dict[str, bool] = {c: True for c in EVENT_COLORS}
         self._tooltip_text = ''
+        self._last_mouse_t = 0.0
+
+        self._stats_timer = QTimer(self)
+        self._stats_timer.setSingleShot(True)
+        self._stats_timer.setInterval(80)
+        self._stats_timer.timeout.connect(self._update_all_stats)
+
+        self._label_timer = QTimer(self)
+        self._label_timer.setSingleShot(True)
+        self._label_timer.setInterval(50)
+        self._label_timer.timeout.connect(self._update_event_label_positions)
+
         self._setup_ui()
 
     # ── UI ────────────────────────────────────────────────────────────────────
@@ -293,7 +306,7 @@ class PlotterTab(QWidget):
 
         # Connect plot range change AFTER all widgets created
         self._plot.sigRangeChanged.connect(self._on_x_range_changed)
-        self._plot.sigRangeChanged.connect(lambda: self._update_event_label_positions())
+        self._plot.sigRangeChanged.connect(lambda _vb, _ranges: self._label_timer.start())
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._tree)
@@ -310,13 +323,16 @@ class PlotterTab(QWidget):
         self._active_sigs.clear()
         self._t_offset = 0.0
 
-        times_all = []
+        t_min_list, t_max_list = [], []
         for df in data.values():
             if 'TimeS' in df.columns:
-                times_all.extend(df['TimeS'].dropna().values)
-        if times_all:
-            self._t_offset = float(np.min(times_all))
-            t_end_rel = float(np.max(times_all)) - self._t_offset
+                ts = df['TimeS'].dropna()
+                if not ts.empty:
+                    t_min_list.append(float(ts.min()))
+                    t_max_list.append(float(ts.max()))
+        if t_min_list:
+            self._t_offset = min(t_min_list)
+            t_end_rel = max(t_max_list) - self._t_offset
         else:
             t_end_rel = 1.0
 
@@ -343,38 +359,41 @@ class PlotterTab(QWidget):
         mode_df = data.get('MODE')
         if mode_df is not None and 'TimeS' in mode_df.columns:
             mode_col = next((c for c in ('Mode', 'ModeNum', 'mode') if c in mode_df.columns), None)
-            for _, row in mode_df.iterrows():
-                ts = float(row['TimeS']) - self._t_offset
-                mode_str = str(int(row[mode_col])) if mode_col else '?'
-                events.append((ts, 'INFO', 'MODE', f'MODE {mode_str}'))
+            ts_arr = mode_df['TimeS'].values - self._t_offset
+            if mode_col:
+                for ts, v in zip(ts_arr, mode_df[mode_col].values):
+                    events.append((float(ts), 'INFO', 'MODE', f'MODE {int(v)}'))
+            else:
+                for ts in ts_arr:
+                    events.append((float(ts), 'INFO', 'MODE', 'MODE ?'))
 
         arm_df = data.get('ARM')
         if arm_df is not None and 'TimeS' in arm_df.columns:
-            for _, row in arm_df.iterrows():
-                ts = float(row['TimeS']) - self._t_offset
-                events.append((ts, 'INFO', 'ARM', 'ARM/DISARM'))
+            for ts in arm_df['TimeS'].values - self._t_offset:
+                events.append((float(ts), 'INFO', 'ARM', 'ARM/DISARM'))
 
         msg_df = data.get('MSG')
         if msg_df is not None and 'TimeS' in msg_df.columns:
             msg_col = next((c for c in ('Message', 'Msg') if c in msg_df.columns), None)
             if msg_col:
-                for _, row in msg_df.iterrows():
-                    ts = float(row['TimeS']) - self._t_offset
-                    events.append((ts, 'INFO', 'MSG', str(row[msg_col])))
+                for ts, msg in zip(msg_df['TimeS'].values - self._t_offset, msg_df[msg_col].values):
+                    events.append((float(ts), 'INFO', 'MSG', str(msg)))
 
         ev_df = data.get('EV')
         if ev_df is not None and 'TimeS' in ev_df.columns:
             id_col = next((c for c in ('Id', 'ID', 'id') if c in ev_df.columns), None)
-            for _, row in ev_df.iterrows():
-                ts = float(row['TimeS']) - self._t_offset
-                label = f'id={int(row[id_col])}' if id_col else 'EV'
-                events.append((ts, 'INFO', 'EV', label))
+            ts_arr = ev_df['TimeS'].values - self._t_offset
+            if id_col:
+                for ts, id_val in zip(ts_arr, ev_df[id_col].values):
+                    events.append((float(ts), 'INFO', 'EV', f'id={int(id_val)}'))
+            else:
+                for ts in ts_arr:
+                    events.append((float(ts), 'INFO', 'EV', 'EV'))
 
         err_df = data.get('ERR')
         if err_df is not None and 'TimeS' in err_df.columns:
-            for _, row in err_df.iterrows():
-                ts = float(row['TimeS']) - self._t_offset
-                events.append((ts, 'ERROR', 'ERR', 'Error'))
+            for ts in err_df['TimeS'].values - self._t_offset:
+                events.append((float(ts), 'ERROR', 'ERR', 'Error'))
 
         events.sort(key=lambda e: e[0])
         self._ev_panel.set_events(events)
@@ -624,7 +643,7 @@ class PlotterTab(QWidget):
         x0, x1 = ranges[0]
         self._range_region.setRegion([x0, x1])
         self._time_ctrl.set_range(x0, x1)
-        self._update_all_stats()
+        self._stats_timer.start()
         self._syncing = False
 
     def _on_region_changed(self):
@@ -691,6 +710,11 @@ class PlotterTab(QWidget):
     # ── Mouse ─────────────────────────────────────────────────────────────────
 
     def _on_mouse_move(self, pos):
+        now = time.monotonic()
+        if now - self._last_mouse_t < 0.016:
+            return
+        self._last_mouse_t = now
+
         vb = self._vb
         if not self._plot.sceneBoundingRect().contains(pos):
             self._tooltip.hide()

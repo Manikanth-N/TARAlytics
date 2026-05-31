@@ -206,6 +206,7 @@ class MainWindow(QMainWindow):
         self._tab_verify.update_data(data, self._raw_bytes)
         self._tab_plotter.update_data(data)
         self._tab_3d.update_data(data)
+        self._run_verification()
 
     def _run_verification(self):
         if self._raw_bytes:

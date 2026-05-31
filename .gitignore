@@ -20,3 +20,7 @@ env/
 .vscode/
 .idea/
 *.swp
+
+# Test cache
+.pytest_cache/
+tests/__pycache__/
