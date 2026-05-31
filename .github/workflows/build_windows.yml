@@ -16,6 +16,9 @@ on:
 jobs:
   build-installer:
     runs-on: windows-latest
+    permissions:
+      contents: write   # required to create / update GitHub Releases
+      id-token: write   # required by softprops/action-gh-release@v2
 
     steps:
       # ── 1. Source ────────────────────────────────────────────────────────────
