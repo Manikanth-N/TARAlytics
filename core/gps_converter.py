@@ -73,10 +73,21 @@ def sim2_df_to_enu(sim2_df):
 
 
 def best_trajectory(data: dict) -> dict:
-    gps_df = data.get('GPS')
-    enu = gps_df_to_enu(gps_df) if gps_df is not None else None
-    if enu is not None:
-        return enu
+    # Try GPS with instance support (GPS, GPS[0], GPS[1], ...)
+    for key in ['GPS'] + [f'GPS[{i}]' for i in range(8)]:
+        gps_df = data.get(key)
+        if gps_df is None:
+            continue
+        enu = gps_df_to_enu(gps_df)
+        if enu is not None:
+            return enu
+
+    # Fall back to POS message (fused position, always available on hardware)
+    pos_df = data.get('POS')
+    if pos_df is not None:
+        enu = gps_df_to_enu(pos_df)
+        if enu is not None:
+            return enu
 
     sim2_df = data.get('SIM2')
     enu = sim2_df_to_enu(sim2_df) if sim2_df is not None else None

@@ -97,6 +97,24 @@ class ParseRunnable(QRunnable):
             self.signals.error.emit(str(e))
 
 
+class VerifySignals(QObject):
+    finished = pyqtSignal(dict, str)   # (result, key_path)
+
+
+class VerifyRunnable(QRunnable):
+    def __init__(self, raw_bytes: bytes, pubkey_str, key_path: str, signals: 'VerifySignals'):
+        super().__init__()
+        self._raw = raw_bytes
+        self._pubkey = pubkey_str
+        self._key_path = key_path
+        self._signals = signals
+
+    def run(self):
+        from core import signature_verifier
+        result = signature_verifier.full_verify(self._raw, self._pubkey)
+        self._signals.finished.emit(result, self._key_path)
+
+
 class DataFlashParser:
     HEAD1 = 0xA3
     HEAD2 = 0x95
@@ -144,7 +162,7 @@ class DataFlashParser:
             try:
                 df = pd.DataFrame(rows, columns=cols)
                 if 'TimeUS' in df.columns:
-                    df = df[(df['TimeUS'] > 0) & (df['TimeUS'] < 3e8)]
+                    df = df[(df['TimeUS'] > 0) & (df['TimeUS'] < 3e11)]
                     df['TimeS'] = df['TimeUS'] / 1e6
                 for col in df.columns:
                     if col in FIELD_BOUNDS:

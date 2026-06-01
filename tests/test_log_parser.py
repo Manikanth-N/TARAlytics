@@ -169,8 +169,8 @@ class TestDataFlashParser:
     def test_extreme_timestamp_filtered(self, tmp_path):
         data = (
             make_att_fmt()
-            + make_att_record(400_000_000, 1.0, 0.0, 0.0)  # TimeUS > 3e8 → filtered
-            + make_att_record(40_000_000, 2.0, 0.5, 90.0)   # kept
+            + make_att_record(400_000_000_000, 1.0, 0.0, 0.0)  # TimeUS > 3e11 → filtered
+            + make_att_record(40_000_000, 2.0, 0.5, 90.0)       # kept
         )
         path = tmp_path / 'test.bin'
         path.write_bytes(data)

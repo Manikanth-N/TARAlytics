@@ -108,18 +108,20 @@ class HealthCardsWidget(QWidget):
         self._sig_card.set_state(state, f'Key ID: {key_id}' if key_id else '')
 
     def update_firmware(self, data: dict):
-        msg_df = data.get('MSG')
-        if msg_df is None or msg_df.empty:
-            self._fw_card.set_text('NO DATA', '')
-            return
         fw_str = ''
-        for col in msg_df.columns:
-            if col in ('Message', 'Msg'):
-                for val in msg_df[col]:
-                    s = str(val)
-                    if 'ArduCopter' in s or 'ArduPlane' in s or 'ArduRover' in s:
-                        fw_str = s
-                        break
+        msg_df = data.get('MSG')
+        if msg_df is not None and not msg_df.empty:
+            for col in msg_df.columns:
+                if col in ('Message', 'Msg'):
+                    for val in msg_df[col]:
+                        s = str(val)
+                        if 'ArduCopter' in s or 'ArduPlane' in s or 'ArduRover' in s:
+                            fw_str = s
+                            break
+        if not fw_str:
+            ver_df = data.get('VER')
+            if ver_df is not None and not ver_df.empty and 'FWS' in ver_df.columns:
+                fw_str = str(ver_df['FWS'].iloc[0]).strip()
         if fw_str:
             build = ''
             if '(' in fw_str and ')' in fw_str:
@@ -130,17 +132,23 @@ class HealthCardsWidget(QWidget):
             self._fw_card.set_text('UNKNOWN', '')
 
     def update_vehicle(self, data: dict):
-        msg_df = data.get('MSG')
-        if msg_df is None or msg_df.empty:
-            self._veh_card.set_text('NO DATA', '')
-            return
         frame_str = ''
-        for col in msg_df.columns:
-            if col in ('Message', 'Msg'):
-                for val in msg_df[col]:
-                    s = str(val)
-                    if 'Frame:' in s:
-                        frame_str = s.replace('Frame:', '').strip()
+        msg_df = data.get('MSG')
+        if msg_df is not None and not msg_df.empty:
+            for col in msg_df.columns:
+                if col in ('Message', 'Msg'):
+                    for val in msg_df[col]:
+                        s = str(val)
+                        if 'Frame:' in s:
+                            frame_str = s.replace('Frame:', '').strip()
+                            break
+        if not frame_str:
+            ver_df = data.get('VER')
+            if ver_df is not None and not ver_df.empty and 'FWS' in ver_df.columns:
+                fws = str(ver_df['FWS'].iloc[0])
+                for vehicle in ('ArduCopter', 'ArduPlane', 'ArduRover', 'ArduSub', 'ArduBlimp'):
+                    if vehicle in fws:
+                        frame_str = vehicle
                         break
         if frame_str:
             self._veh_card.set_text(frame_str, '', '#6ee7b7', '#1a3a2a')

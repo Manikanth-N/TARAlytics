@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSettings, QThreadPool, pyqtSignal, QObject
 from PyQt6.QtGui import QFont, QIcon
 
-from core.log_parser import DataFlashParser, ParseRunnable, ParserSignals
+from core.log_parser import DataFlashParser, ParseRunnable, ParserSignals, VerifyRunnable, VerifySignals
 from core import signature_verifier
 
 
@@ -36,6 +36,7 @@ class MainWindow(QMainWindow):
         self._parsed_data = {}
         self._raw_bytes = b''
         self._pubkey_str = None
+        self._verify_signals: list = []   # keep VerifySignals alive until runnable finishes
 
         self._settings = QSettings('TARAlyticsAnalyzer', 'MainWindow')
         self._bin_path = self._settings.value('bin_path', '')
@@ -209,9 +210,20 @@ class MainWindow(QMainWindow):
         self._run_verification()
 
     def _run_verification(self):
-        if self._raw_bytes:
-            result = signature_verifier.full_verify(self._raw_bytes, self._pubkey_str)
-            self._tab_verify.update_verification(result, self._key_path)
+        if not self._raw_bytes:
+            return
+        sigs = VerifySignals()
+        self._verify_signals.append(sigs)
+        sigs.finished.connect(
+            lambda result, kp, s=sigs: self._on_verify_done(result, kp, s)
+        )
+        runnable = VerifyRunnable(self._raw_bytes, self._pubkey_str, self._key_path, sigs)
+        QThreadPool.globalInstance().start(runnable)
+
+    def _on_verify_done(self, result: dict, key_path: str, sigs: object):
+        self._tab_verify.update_verification(result, key_path)
+        if sigs in self._verify_signals:
+            self._verify_signals.remove(sigs)
 
     def _on_event_selected(self, t_abs: float):
         """Tab 1 event click → center Tab 2 view on that time."""
