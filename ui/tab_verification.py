@@ -2,7 +2,9 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QSplitter
 from PyQt6.QtCore import Qt
 
 from core import signature_verifier
+from core.anomaly_detector import detect_anomalies
 from ui.widgets.health_cards import HealthCardsWidget
+from ui.widgets.flight_summary import FlightSummaryWidget
 from ui.widgets.signature_panel import SignaturePanel
 from ui.widgets.event_table import EventTable
 from ui.widgets.event_timeline import EventTimeline
@@ -26,6 +28,9 @@ class VerificationTab(QWidget):
 
         self._cards = HealthCardsWidget()
         layout.addWidget(self._cards)
+
+        self._summary = FlightSummaryWidget()
+        layout.addWidget(self._summary)
 
         self._sig_panel = SignaturePanel()
         self._sig_panel.key_changed.connect(self._on_key_changed)
@@ -52,6 +57,11 @@ class VerificationTab(QWidget):
         self._cards.update_vehicle(data)
         self._cards.update_ekf(data)
         self._cards.update_gps(data)
+
+        self._summary.update_data(data)
+
+        anomalies = detect_anomalies(data)
+        self._cards.update_faults(anomalies)
 
     def set_pubkey(self, pubkey_str, key_path: str):
         self._pubkey = pubkey_str

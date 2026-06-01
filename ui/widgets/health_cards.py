@@ -94,14 +94,15 @@ class HealthCardsWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        self._sig_card = HealthCard('SIGNATURE')
-        self._fw_card = HealthCard('FIRMWARE')
-        self._veh_card = HealthCard('VEHICLE')
-        self._ekf_card = HealthCard('EKF')
-        self._gps_card = HealthCard('GPS')
+        self._sig_card    = HealthCard('SIGNATURE')
+        self._fw_card     = HealthCard('FIRMWARE')
+        self._veh_card    = HealthCard('VEHICLE')
+        self._ekf_card    = HealthCard('EKF')
+        self._gps_card    = HealthCard('GPS')
+        self._faults_card = HealthCard('AUTO-FAULTS')
 
         for card in (self._sig_card, self._fw_card, self._veh_card,
-                     self._ekf_card, self._gps_card):
+                     self._ekf_card, self._gps_card, self._faults_card):
             layout.addWidget(card)
 
     def update_signature(self, state: str, key_id: str = ''):
@@ -198,6 +199,25 @@ class HealthCardsWidget(QWidget):
         color = '#6ee7b7' if status >= 3 else '#fcd34d'
         bg = '#1a3a2a' if status >= 3 else '#2a1a00'
         self._gps_card.set_text(fix_name, f'Sats: {sats}  HDop: {hdop:.2f}', color, bg)
+
+    def update_faults(self, anomalies: list):
+        if not anomalies:
+            self._faults_card.set_text('CLEAN', 'No anomalies detected', '#6ee7b7', '#1a3a2a')
+            return
+        errors   = sum(1 for _, sev, *_ in anomalies if sev in ('ERROR', 'CRITICAL'))
+        warnings = sum(1 for _, sev, *_ in anomalies if sev == 'WARNING')
+        if errors:
+            self._faults_card.set_text(
+                f'{errors} ERROR{"S" if errors > 1 else ""}',
+                f'+{warnings} warning{"s" if warnings != 1 else ""}' if warnings else '',
+                '#fd7e14', '#2a1500',
+            )
+        else:
+            self._faults_card.set_text(
+                f'{warnings} WARNING{"S" if warnings > 1 else ""}',
+                'Review event overlay',
+                '#fcd34d', '#2a1a00',
+            )
 
     def update_all(self, data: dict, sig_state: str = 'UNVERIFIED', key_id: str = ''):
         self.update_signature(sig_state, key_id)

@@ -201,6 +201,10 @@ class SignaturePanel(QFrame):
 
     def update_verification(self, result: dict, key_path: str = ''):
         state = result.get('state', 'UNVERIFIED')
+        # Reset dynamic labels so previous log's values never bleed across
+        self._fp_lbl.setText('Key fingerprint   —')
+        self._fp_lbl.setTextFormat(Qt.TextFormat.PlainText)
+        self._ed_lbl.setText('Signature result   —')
         fg, bg = badge_style(state)
         self._badge.setText(state)
         self._badge.setStyleSheet(
@@ -230,6 +234,12 @@ class SignaturePanel(QFrame):
         else:
             struct_msg = result.get('structure_message', '')
             self._struct_lbl.setText(f'Structure   {struct_msg}')
+            # Clear stale hash fields so previous log's values don't bleed in
+            self._range_lbl.setText('Signed range   —')
+            self._sha_signed.set_value('')
+            self._sha_full.set_value('')
+            self._header_mac.set_value('')
+            self._key_id_lbl.setText('Key ID   —')
 
         # Hash chain
         chain_ok = result.get('chain_ok', False)

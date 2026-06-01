@@ -304,7 +304,7 @@ class DataFlashParser:
                 pass
             i += length
             count += 1
-            if signals and count % 10000 == 0:
+            if signals and count % 5000 == 0:
                 pct = min(99, int(i / n * 100))
                 signals.progress.emit(pct)
         if signals:

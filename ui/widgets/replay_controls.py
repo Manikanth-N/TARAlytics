@@ -153,3 +153,17 @@ class ReplayControls(QWidget):
         self._scrubber.setValue(self._t_to_slider(t))
         self._scrubber.blockSignals(False)
         self._update_time_label()
+
+    def toggle_play(self):
+        """Public slot for keyboard shortcut."""
+        self._toggle_play()
+
+    def step(self, dt: float):
+        """Step forward (dt>0) or backward (dt<0) by dt seconds."""
+        new_t = max(self._t_min, min(self._t_max, self._current + dt))
+        self._current = new_t
+        self._scrubber.blockSignals(True)
+        self._scrubber.setValue(self._t_to_slider(new_t))
+        self._scrubber.blockSignals(False)
+        self._update_time_label()
+        self.time_changed.emit(new_t)

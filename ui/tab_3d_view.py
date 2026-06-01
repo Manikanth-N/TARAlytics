@@ -93,6 +93,8 @@ class View3DTab(QWidget):
         self._traj_item = None
         self._ground_item = None
         self._arrow_items = []
+        self._aircraft_items = []
+        self._aircraft_scale = 1.0
         self._show_arrows = True
         self._follow_vehicle = True
         self._default_elevation = 30
@@ -181,6 +183,10 @@ class View3DTab(QWidget):
             self._gl.removeItem(item)
         self._arrow_items.clear()
 
+        for item in self._aircraft_items:
+            self._gl.removeItem(item)
+        self._aircraft_items.clear()
+
         if self._traj_item:
             self._gl.removeItem(self._traj_item)
             self._traj_item = None
@@ -236,10 +242,22 @@ class View3DTab(QWidget):
 
         self._add_ground_plane(east, north)
 
-        self._vehicle_item = gl.GLScatterPlotItem(
-            pos=pts[:1], size=15, color=(1.0, 0.4, 0.0, 1.0)
+        self._vehicle_item = None
+        _ext = max(
+            float(east.max() - east.min()) if len(east) > 0 else 1,
+            float(north.max() - north.min()) if len(north) > 0 else 1,
+            float(up.max() - up.min()) if len(up) > 0 else 1,
         )
-        self._gl.addItem(self._vehicle_item)
+        self._aircraft_scale = max(0.5, _ext * 0.025)
+        self._create_aircraft_items()
+        init_yaw = 0.0
+        att_df = data.get('ATT')
+        if att_df is not None and not att_df.empty:
+            for _col in ('Yaw', 'yaw'):
+                if _col in att_df.columns:
+                    init_yaw = float(att_df[_col].iloc[0])
+                    break
+        self._update_aircraft_pose(float(east[0]), float(north[0]), float(up[0]), init_yaw)
 
         home = gl.GLScatterPlotItem(
             pos=np.array([[0, 0, 0]], dtype=np.float32),
@@ -314,6 +332,46 @@ class View3DTab(QWidget):
             self._gl.addItem(arrow)
             self._arrow_items.append(arrow)
 
+    def _create_aircraft_items(self):
+        orange = (1.0, 0.45, 0.05, 1.0)
+        dim    = (1.0, 0.45, 0.05, 0.75)
+        zero   = np.zeros((2, 3), dtype=np.float32)
+        fuselage = gl.GLLinePlotItem(pos=zero.copy(), color=orange, width=3, antialias=True)
+        wings    = gl.GLLinePlotItem(pos=zero.copy(), color=orange, width=3, antialias=True)
+        tail     = gl.GLLinePlotItem(pos=zero.copy(), color=dim,    width=2, antialias=True)
+        for item in (fuselage, wings, tail):
+            self._gl.addItem(item)
+        self._aircraft_items = [fuselage, wings, tail]
+
+    def _update_aircraft_pose(self, xe: float, xn: float, xu: float, yaw_deg: float):
+        if not self._aircraft_items:
+            return
+        L = self._aircraft_scale
+        sin_y = math.sin(math.radians(yaw_deg))
+        cos_y = math.cos(math.radians(yaw_deg))
+
+        # Aircraft body frame → ENU world: forward=North@yaw0, right=East@yaw0
+        # pt(fwd, right) maps body-frame offsets to world coords
+        def pt(fwd, right):
+            return [xe + fwd * sin_y + right * cos_y,
+                    xn + fwd * cos_y - right * sin_y,
+                    xu]
+
+        self._aircraft_items[0].setData(pos=np.array([
+            pt(L, 0),          # nose
+            pt(-0.5 * L, 0),   # tail
+        ], dtype=np.float32))
+
+        self._aircraft_items[1].setData(pos=np.array([
+            pt(0.1 * L, -0.8 * L),   # left wing tip
+            pt(0.1 * L,  0.8 * L),   # right wing tip
+        ], dtype=np.float32))
+
+        self._aircraft_items[2].setData(pos=np.array([
+            pt(-0.4 * L, -0.3 * L),  # left tail fin
+            pt(-0.4 * L,  0.3 * L),  # right tail fin
+        ], dtype=np.float32))
+
     def _on_time_changed(self, t: float):
         traj = self._traj
         if traj is None:
@@ -329,11 +387,6 @@ class View3DTab(QWidget):
         xe = _interp(times, east, t)
         xn = _interp(times, north, t)
         xu = _interp(times, up, t)
-
-        if self._vehicle_item is not None:
-            self._vehicle_item.setData(
-                pos=np.array([[xe, xn, xu]], dtype=np.float32)
-            )
 
         if self._follow_vehicle and GL_AVAILABLE:
             self._gl.opts['center'] = pg_vector(xe, xn, xu)
@@ -353,6 +406,8 @@ class View3DTab(QWidget):
                         pitch = v
                     elif col == 'Yaw':
                         yaw = v
+
+        self._update_aircraft_pose(xe, xn, xu, yaw)
 
         speed = math.sqrt(
             _interp_data(data, 'SIM2', 'VN', times, t) ** 2 +

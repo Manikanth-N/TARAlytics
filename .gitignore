@@ -6,10 +6,9 @@ __pycache__/
 build/
 dist/
 
-# Logs (keep directory, not contents)
-logs/*.BIN
-logs/*.bin
-logs/*.log
+# Flight log data directories
+LOGS/
+logs/
 
 # Python virtual environments
 .venv/

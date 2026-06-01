@@ -3,12 +3,49 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QPushButton, QTabWidget, QProgressBar,
     QFileDialog, QSizePolicy, QToolBar, QFrame, QLineEdit,
+    QApplication,
 )
 from PyQt6.QtCore import Qt, QSettings, QThreadPool, pyqtSignal, QObject
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtGui import QFont, QIcon, QPalette, QColor, QKeySequence, QShortcut
 
 from core.log_parser import DataFlashParser, ParseRunnable, ParserSignals, VerifyRunnable, VerifySignals
 from core import signature_verifier
+
+
+def _dark_palette() -> QPalette:
+    p = QPalette()
+    p.setColor(QPalette.ColorRole.Window,          QColor('#1e1e2e'))
+    p.setColor(QPalette.ColorRole.WindowText,      QColor('#e0e0e0'))
+    p.setColor(QPalette.ColorRole.Base,            QColor('#13131f'))
+    p.setColor(QPalette.ColorRole.AlternateBase,   QColor('#1a1a2e'))
+    p.setColor(QPalette.ColorRole.ToolTipBase,     QColor('#2a2a3e'))
+    p.setColor(QPalette.ColorRole.ToolTipText,     QColor('#e0e0e0'))
+    p.setColor(QPalette.ColorRole.Text,            QColor('#e0e0e0'))
+    p.setColor(QPalette.ColorRole.Button,          QColor('#2a2a3e'))
+    p.setColor(QPalette.ColorRole.ButtonText,      QColor('#e0e0e0'))
+    p.setColor(QPalette.ColorRole.BrightText,      QColor('#ffffff'))
+    p.setColor(QPalette.ColorRole.Link,            QColor('#4a90d9'))
+    p.setColor(QPalette.ColorRole.Highlight,       QColor('#0d6efd'))
+    p.setColor(QPalette.ColorRole.HighlightedText, QColor('#ffffff'))
+    return p
+
+
+def _light_palette() -> QPalette:
+    p = QPalette()
+    p.setColor(QPalette.ColorRole.Window,          QColor('#f0f2f5'))
+    p.setColor(QPalette.ColorRole.WindowText,      QColor('#212529'))
+    p.setColor(QPalette.ColorRole.Base,            QColor('#ffffff'))
+    p.setColor(QPalette.ColorRole.AlternateBase,   QColor('#e9ecef'))
+    p.setColor(QPalette.ColorRole.ToolTipBase,     QColor('#ffffff'))
+    p.setColor(QPalette.ColorRole.ToolTipText,     QColor('#212529'))
+    p.setColor(QPalette.ColorRole.Text,            QColor('#212529'))
+    p.setColor(QPalette.ColorRole.Button,          QColor('#dee2e6'))
+    p.setColor(QPalette.ColorRole.ButtonText,      QColor('#212529'))
+    p.setColor(QPalette.ColorRole.BrightText,      QColor('#000000'))
+    p.setColor(QPalette.ColorRole.Link,            QColor('#0d6efd'))
+    p.setColor(QPalette.ColorRole.Highlight,       QColor('#0d6efd'))
+    p.setColor(QPalette.ColorRole.HighlightedText, QColor('#ffffff'))
+    return p
 
 
 def _trunc(path: str, max_len: int = 35) -> str:
@@ -36,11 +73,13 @@ class MainWindow(QMainWindow):
         self._parsed_data = {}
         self._raw_bytes = b''
         self._pubkey_str = None
-        self._verify_signals: list = []   # keep VerifySignals alive until runnable finishes
+        self._verify_signals: list = []
+        self._is_dark = True
 
         self._settings = QSettings('TARAlyticsAnalyzer', 'MainWindow')
         self._bin_path = self._settings.value('bin_path', '')
         self._key_path = self._settings.value('key_path', '')
+        self._is_dark  = self._settings.value('is_dark', True, type=bool)
 
         self._setup_ui()
         self._update_toolbar_labels()
@@ -93,7 +132,8 @@ class MainWindow(QMainWindow):
 
         self._progress = QProgressBar()
         self._progress.setRange(0, 100)
-        self._progress.setFixedWidth(180)
+        self._progress.setFixedWidth(200)
+        self._progress.setFormat('Parsing: %p%')
         self._progress.setVisible(False)
 
         toolbar.addWidget(QLabel('BIN:'))
@@ -107,18 +147,34 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self._parse_btn)
         toolbar.addWidget(self._progress)
 
+        # ── Theme toggle ──────────────────────────────────────────────────────
+        toolbar.addSeparator()
+        self._theme_btn = QPushButton('☀' if self._is_dark else '🌙')
+        self._theme_btn.setFixedWidth(34)
+        self._theme_btn.setToolTip('Toggle light / dark theme')
+        self._theme_btn.setStyleSheet(
+            'QPushButton { background: #3a3a4e; color: #e0e0e0; border-radius: 4px; '
+            'padding: 4px; font-size: 14px; }'
+            'QPushButton:hover { background: #4a4a6e; }'
+        )
+        self._theme_btn.clicked.connect(self._toggle_theme)
+        toolbar.addWidget(self._theme_btn)
+
         from ui.tab_verification import VerificationTab
         from ui.tab_plotter import PlotterTab
         from ui.tab_3d_view import View3DTab
+        from ui.tab_map_view import MapTab
 
-        self._tab_verify = VerificationTab(self)
+        self._tab_verify  = VerificationTab(self)
         self._tab_plotter = PlotterTab(self)
-        self._tab_3d = View3DTab(self)
+        self._tab_3d      = View3DTab(self)
+        self._tab_map     = MapTab(self)
 
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._tab_verify, 'Log Verification')
+        self._tabs.addTab(self._tab_verify,  'Log Verification')
         self._tabs.addTab(self._tab_plotter, 'Signal Plotter')
-        self._tabs.addTab(self._tab_3d, '3D Flight View')
+        self._tabs.addTab(self._tab_3d,      '3D Flight View')
+        self._tabs.addTab(self._tab_map,     '2D Map')
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -132,7 +188,19 @@ class MainWindow(QMainWindow):
         # Cross-tab synchronisation
         self._tab_plotter.crosshair_moved.connect(self.plotter_cursor_moved)
         self._tab_plotter.crosshair_moved.connect(self._tab_3d.set_time)
+        self._tab_plotter.crosshair_moved.connect(self._tab_map.set_time)
         self.event_selected.connect(self._on_event_selected)
+
+        # Keyboard shortcuts: Space = play/pause, [ / ] = step ±0.5 s
+        QShortcut(QKeySequence(Qt.Key.Key_Space), self).activated.connect(
+            self._tab_3d._replay.toggle_play
+        )
+        QShortcut(QKeySequence('['), self).activated.connect(
+            lambda: self._tab_3d._replay.step(-0.5)
+        )
+        QShortcut(QKeySequence(']'), self).activated.connect(
+            lambda: self._tab_3d._replay.step(0.5)
+        )
 
     def _update_toolbar_labels(self):
         self._bin_label.setText(_trunc(self._bin_path))
@@ -170,8 +238,10 @@ class MainWindow(QMainWindow):
             return
 
         self._parse_btn.setEnabled(False)
+        self._parse_btn.setText('⏳ Parsing...')
         self._progress.setVisible(True)
         self._progress.setValue(0)
+        self._status('Reading log file...')
 
         try:
             with open(self._bin_path, 'rb') as f:
@@ -186,6 +256,7 @@ class MainWindow(QMainWindow):
 
         signals = ParserSignals()
         signals.progress.connect(self._progress.setValue)
+        signals.progress.connect(lambda v: self._status(f'Parsing: {v}%') if 0 < v < 100 else None)
         signals.finished.connect(self._on_parse_done)
         signals.error.connect(self._on_parse_error)
 
@@ -196,18 +267,28 @@ class MainWindow(QMainWindow):
         self._parsed_data = data
         self._progress.setVisible(False)
         self._parse_btn.setEnabled(True)
+        self._parse_btn.setText('▶ Parse Log')
+        self._status(f'Parsed {len(data)} message types.')
         self.data_ready.emit(data)
 
     def _on_parse_error(self, msg: str):
         self._progress.setVisible(False)
         self._parse_btn.setEnabled(True)
+        self._parse_btn.setText('▶ Parse Log')
         self._status(f'Parse error: {msg}')
 
     def _on_data_ready(self, data: dict):
         self._tab_verify.update_data(data, self._raw_bytes)
         self._tab_plotter.update_data(data)
         self._tab_3d.update_data(data)
+        self._tab_map.update_data(data)
         self._run_verification()
+
+    def _toggle_theme(self):
+        self._is_dark = not self._is_dark
+        self._settings.setValue('is_dark', self._is_dark)
+        QApplication.instance().setPalette(_dark_palette() if self._is_dark else _light_palette())
+        self._theme_btn.setText('☀' if self._is_dark else '🌙')
 
     def _run_verification(self):
         if not self._raw_bytes:

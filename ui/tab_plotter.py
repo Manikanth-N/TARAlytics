@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF, QTimer
 from PyQt6.QtGui import QColor, QBrush, QAction, QFont
 
 from core.colors import signal_color, SEVERITY_COLORS
+from core.anomaly_detector import detect_anomalies
 from ui.widgets.stats_legend import StatsLegend
 from ui.widgets.time_limit_controls import TimeLimitControls
 from ui.widgets.event_overlay_panel import EventOverlayPanel, EVENT_COLORS, _event_category
@@ -157,9 +158,9 @@ class PlotterTab(QWidget):
         super().__init__(parent)
         self._mw          = main_window
         self._data        = {}
-        self._active_sigs: dict[str, dict] = {}
-        self._color_idx   = 0
         self._t_offset    = 0.0
+        self._color_idx   = 0
+        self._active_sigs: dict[str, dict] = {}
         self._t_full      = (0.0, 1.0)   # (rel_start, rel_end) of full log
         self._syncing     = False
         self._event_items: list[dict] = []  # {ts, cat, line, visible}
@@ -395,6 +396,10 @@ class PlotterTab(QWidget):
             for ts in err_df['TimeS'].values - self._t_offset:
                 events.append((float(ts), 'ERROR', 'ERR', 'Error'))
 
+        # Auto-detected anomalies
+        for (ts, sev, cat, msg) in detect_anomalies(data):
+            events.append((float(ts), sev, cat, msg))
+
         events.sort(key=lambda e: e[0])
         self._ev_panel.set_events(events)
         self._build_event_lines(events)
@@ -542,6 +547,10 @@ class PlotterTab(QWidget):
                 grp.setExpanded(True)
 
         self._tree.blockSignals(False)
+        try:
+            self._tree.itemChanged.disconnect(self._on_item_changed)
+        except (RuntimeError, TypeError):
+            pass
         self._tree.itemChanged.connect(self._on_item_changed)
 
     def _apply_defaults(self):
