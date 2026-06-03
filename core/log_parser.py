@@ -33,8 +33,12 @@ SCALE_C = {'c', 'C'}
 SCALE_L = {'L'}
 
 INSTANCE_COLUMNS = {'I', 'Instance', 'C', 'IMU'}
+# Only integer-typed formats can be instance discriminators; a float column
+# named 'I' (e.g. the PID integral term) is data, not an instance index.
+INTEGER_FMTS = {'b', 'B', 'h', 'H', 'i', 'I', 'q', 'Q', 'M'}
 MAX_VALID_INSTANCE = 15
 _INST_PAT = re.compile(r'^(.+)\[(\d+)\]$')
+_VALID_COL = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
 INSTANCE_BOUNDS = {
     'ESC':  (0, 11), 'ESCX': (0, 11),
@@ -46,9 +50,11 @@ INSTANCE_BOUNDS = {
 _DEFAULT_INSTANCE_BOUNDS = (0, 15)
 
 
-def get_instance_col(col_list: list) -> 'str | None':
-    for col in col_list:
+def get_instance_col(col_list: list, scales: list = None) -> 'str | None':
+    for idx, col in enumerate(col_list):
         if col in INSTANCE_COLUMNS:
+            if scales is not None and idx < len(scales) and scales[idx] not in INTEGER_FMTS:
+                continue  # float column with an instance-like name (PID I-term) — not an instance
             return col
     return None
 
@@ -181,7 +187,7 @@ class DataFlashParser:
                 result[name] = df
             except Exception:
                 pass
-        return result
+        return dict(sorted(result.items()))
 
     def _pass1_collect_fmt(self, data: bytes, fmt_map: dict):
         i = 0
@@ -204,8 +210,11 @@ class DataFlashParser:
                 length = data[body_start + 1]
                 name = data[body_start + 2: body_start + 6].rstrip(b'\x00').decode('ascii', errors='replace')
                 fmt_str = data[body_start + 6: body_start + 22].rstrip(b'\x00').decode('ascii', errors='replace')
-                cols_raw = data[body_start + 22: body_start + 86].rstrip(b'\x00').decode('ascii', errors='replace')
-                columns = [c.strip() for c in cols_raw.split(',') if c.strip()]
+                cols_bytes = data[body_start + 22: body_start + 86]
+                first_null = cols_bytes.find(b'\x00')
+                cols_raw = cols_bytes[:first_null if first_null >= 0 else 64].decode('ascii', errors='replace')
+                columns = [c.strip() for c in cols_raw.split(',')
+                           if c.strip() and _VALID_COL.match(c.strip())]
                 s, sizes, scales = _build_fmt_struct(fmt_str)
                 if s is not None:
                     entry = {
@@ -277,7 +286,7 @@ class DataFlashParser:
                                 vals[idx] = []
 
                     row = vals[:len(columns)]
-                    inst_col = get_instance_col(columns)
+                    inst_col = get_instance_col(columns, scales)
                     if inst_col is not None:
                         inst_idx = columns.index(inst_col)
                         try:
