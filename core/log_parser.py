@@ -130,19 +130,36 @@ class DataFlashParser:
     TRAILER_MAGIC = b'1HCH'
     HEADER_SIZE = 64
     TRAILER_SIZE = 145
+    # sizeof(log_Format) per AP_Logger/LogStructure.h:
+    #   header(3) + type(1) + length(1) + name[4] + format[16] + labels[64] = 89
+    # The body after the 3-byte packet header is 86 bytes.
+    FMT_BODY_SIZE = 86
+    FMT_RECORD_SIZE = 3 + FMT_BODY_SIZE   # 89
 
     def parse(self, filepath: str, signals: Optional[ParserSignals] = None) -> dict:
         with open(filepath, 'rb') as f:
             raw = f.read()
 
         if raw[:2] == self.SIGNED_MAGIC:
-            data_start = self.HEADER_SIZE
+            # Secure log: parse ONLY the data ranges referenced by the hash-chain
+            # chunk records, excluding the interleaved 44-byte CHUNK records and
+            # the END record. Otherwise chunk-magic bytes ("1HCH") leak into
+            # telemetry as garbage (e.g. 199968.766). Reuses the verifier's
+            # chunk detection so parser and verifier agree on boundaries.
+            from core import signature_verifier
+            clean = signature_verifier.extract_signed_data(raw)
+            if clean is not None:
+                data = clean
+            else:
+                # Signed magic but no chunk records recovered — fall back to the
+                # legacy header/trailer strip so we never lose a parseable log.
+                data = raw[self.HEADER_SIZE:]
+                if len(raw) > self.TRAILER_SIZE and \
+                        raw[-self.TRAILER_SIZE: -self.TRAILER_SIZE + 4] == self.TRAILER_MAGIC:
+                    data = raw[self.HEADER_SIZE: len(raw) - self.TRAILER_SIZE]
         else:
-            data_start = 0
-
-        data = raw[data_start:]
-        if len(raw) > self.TRAILER_SIZE and raw[-self.TRAILER_SIZE: -self.TRAILER_SIZE + 4] == self.TRAILER_MAGIC:
-            data = raw[data_start: len(raw) - self.TRAILER_SIZE]
+            # Unsigned log: no chunk records; parse the whole stream as-is.
+            data = raw
 
         fmt_map = {}
         self._pass1_collect_fmt(data, fmt_map)
@@ -203,7 +220,7 @@ class DataFlashParser:
                 i += 1
                 continue
             body_start = i + 3
-            if body_start + 87 > n:
+            if body_start + self.FMT_BODY_SIZE > n:
                 break
             try:
                 type_id = data[body_start]
@@ -230,7 +247,7 @@ class DataFlashParser:
                     fmt_map[type_id] = entry
             except Exception:
                 pass
-            i += 3 + 87
+            i += self.FMT_RECORD_SIZE
 
     def _pass2_parse_all(self, data: bytes, fmt_map: dict, records: dict,
                          signals: Optional[ParserSignals],
@@ -246,7 +263,7 @@ class DataFlashParser:
                 break
             msg_type = data[i + 2]
             if msg_type == self.FMT_TYPE:
-                i += 3 + 87
+                i += self.FMT_RECORD_SIZE
                 count += 1
                 continue
             entry = fmt_map.get(msg_type)

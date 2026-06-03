@@ -186,6 +186,47 @@ def check_fingerprint(raw: bytes, pubkey_bytes: bytes) -> str:
     return 'MATCH' if sha_key[:16] == header_mac[:16] else 'MISMATCH'
 
 
+def extract_signed_data(raw: bytes) -> Optional[bytes]:
+    """
+    For a secure (signed) log, return the concatenation of the data ranges
+    referenced by the hash-chain chunk records, excluding the interspersed
+    CHUNK records and the END record. This is the original DataFlash message
+    stream with the signature infrastructure removed, so the parser never reads
+    chunk-magic bytes as telemetry.
+
+    Returns None if the log is not signed or contains no chunk records (caller
+    should then parse the raw stream as-is). Works on truncated logs (missing
+    END/trailer) because chunk records are still present and self-describing.
+
+    Shares the chunk-detection contract with _scan_hash_chain (same magics and
+    record sizes) so the parser and verifier agree on chunk boundaries.
+    """
+    if raw[:2] != SIGNED_MAGIC or len(raw) < 64:
+        return None
+    n = len(raw)
+    pos = 64  # skip signed header
+    parts: list = []
+    found = False
+    while pos <= n - 4:
+        m = struct.unpack_from('<I', raw, pos)[0]
+        if m == CHUNK_MAGIC:
+            if pos + CHUNK_RECORD_SIZE > n:
+                break
+            _, off, ln, _ = struct.unpack_from('<III32s', raw, pos)
+            if off + ln > n:
+                break
+            parts.append(raw[off:off + ln])
+            found = True
+            pos += CHUNK_RECORD_SIZE
+        elif m == END_MAGIC:
+            if pos + END_RECORD_SIZE > n:
+                break
+            pos += END_RECORD_SIZE
+        else:
+            pos += 1
+    return b''.join(parts) if found else None
+
+
 def _scan_hash_chain(raw: bytes) -> dict:
     if len(raw) < 64:
         return {'ok': False, 'chunks': 0, 'end_rec': None, 'errors': []}

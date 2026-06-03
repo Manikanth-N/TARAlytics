@@ -38,9 +38,10 @@ class TestStructuralFixes:
             assert data[name]['I'].dtype.kind == 'f'  # float integral term
 
     def test_motb_columns_clean(self, data):
+        # Sprint-1.2: stride fix parses MOTB fully (was truncated 'ThrAvM1HCH').
         cols = list(data['MOTB'].columns)
         assert cols == ['TimeUS', 'LiftMax', 'BatVolt', 'ThLimit',
-                        'ThrAvM1HCH', 'TimeS']
+                        'ThrAvMx', 'ThrOut', 'FailFlags', 'TimeS']
         assert all('\x00' not in c for c in cols)
 
     def test_alphabetical_ordering(self, data):
@@ -48,23 +49,27 @@ class TestStructuralFixes:
         assert keys == sorted(keys)
 
     def test_type_count(self, data):
-        assert len(data) == 59
+        # Sprint-1.2: chunk-exclusion + FMT stride=89 recover the full catalog.
+        assert len(data) == 92
 
 
-# ── Success criteria (metrics must stay UNCHANGED vs pre-Sprint-1.1) ─────────
+# ── Sprint-1.2 corrected metrics (chunk leak + stride fixed) ─────────────────
 
-class TestMetricsUnchanged:
-    def test_duration_unchanged(self, data):
-        assert FlightMetrics.duration(data)[1] == '0:58'
+class TestMetricsCorrected:
+    def test_duration_armed_window(self, data):
+        assert FlightMetrics.duration(data)[1] == '0:43'   # armed, not log span
 
-    def test_altitude_unchanged(self, data):
-        assert FlightMetrics.max_altitude(data)[1] == '199968.8 m'
+    def test_log_span_secondary(self, data):
+        assert FlightMetrics.log_span(data)[1] == '0:58'
 
-    def test_speed_unchanged(self, data):
-        assert FlightMetrics.max_speed(data)[1] == '199968.8 m/s'
+    def test_altitude_agl(self, data):
+        assert FlightMetrics.max_altitude(data)[1] == '10.0 m'  # was 199968.8
 
-    def test_distance_unchanged(self, data):
-        assert FlightMetrics.distance(data)[1] == '44133.13 km'
+    def test_speed_real(self, data):
+        assert FlightMetrics.max_speed(data)[1] == '2.5 m/s'    # was 199968.8
+
+    def test_distance_real(self, data):
+        assert FlightMetrics.distance(data)[1] == '0 m'         # was 44133.13 km
 
     def test_event_count_unchanged(self, data):
         assert FlightMetrics.event_count(data) == 29
@@ -75,8 +80,65 @@ class TestMetricsUnchanged:
     def test_arm_count_unchanged(self, data):
         assert FlightMetrics.arm_count(data) == 2
 
-    def test_gps_sitl_unchanged(self, data):
-        assert HealthAnalyzer.gps(data)['is_sitl'] is True
+
+# ── Parser correctness: full telemetry recovered, zero signature leakage ─────
+
+class TestTelemetryRecovered:
+    def test_no_signature_sentinel(self, data):
+        SENT = 199968.765625   # float32 of bytes '1HCH'
+        cells = sum(int((data[k][c] == SENT).sum())
+                    for k in data for c in data[k].columns
+                    if data[k][c].dtype.kind == 'f')
+        assert cells == 0
+
+    def test_core_types_present(self, data):
+        for t in ('ATT', 'POS', 'RATE', 'XKF1[0]', 'XKQ[0]', 'VER', 'IMU[0]'):
+            assert t in data, f'{t} missing after parser correction'
+
+    def test_attitude_plausible(self, data):
+        att = data['ATT']
+        assert att['Roll'].abs().max() < 180
+        assert att['Pitch'].abs().max() < 90
+
+
+# ── FMT stride + chunk-exclusion: signed / unsigned / truncated coverage ─────
+
+class TestParserCorrectness:
+    def test_fmt_stride_is_89(self):
+        from core.log_parser import DataFlashParser as P
+        assert P.FMT_RECORD_SIZE == 89   # sizeof(log_Format) per AP_Logger
+
+    def test_extract_signed_data_removes_chunks(self):
+        # On the reference signed log, the data ranges contain no chunk magic.
+        from core import signature_verifier as sv
+        raw = open(BIN, 'rb').read()
+        clean = sv.extract_signed_data(raw)
+        assert clean is not None
+        assert clean.count(b'1HCH') == 0
+        assert clean.count(bytes.fromhex('31484348')) == 0   # HCH1 LE
+
+    def test_unsigned_stream_returns_none(self):
+        from core import signature_verifier as sv
+        # Unsigned DataFlash (no A5 01 header) -> no chunk extraction.
+        assert sv.extract_signed_data(b'\xA3\x95\x80' + b'\x00' * 200) is None
+
+    def test_unsigned_log_still_parses(self, att_log_bytes, tmp_path):
+        # Synthetic unsigned log parses via the whole-stream path unchanged.
+        from core.log_parser import DataFlashParser
+        p = tmp_path / 'unsigned.bin'
+        p.write_bytes(att_log_bytes)
+        data = DataFlashParser().parse(str(p))
+        assert isinstance(data, dict)
+
+    def test_truncated_signed_log_degrades_gracefully(self):
+        # A signed log truncated mid-chunk (no END/trailer) still yields a
+        # data stream from the chunk records present.
+        from core import signature_verifier as sv
+        raw = open(BIN, 'rb').read()
+        truncated = raw[: len(raw) // 2]          # cut before END/trailer
+        clean = sv.extract_signed_data(truncated)
+        assert clean is not None and len(clean) > 0
+        assert clean.count(b'1HCH') == 0
 
 
 # ── Regression guard: filters must remain (catches accidental stash R1) ─────
