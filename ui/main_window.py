@@ -11,6 +11,10 @@ from PyQt6.QtGui import QFont, QIcon, QPalette, QColor, QKeySequence, QShortcut
 from core.log_parser import DataFlashParser, ParseRunnable, ParserSignals, VerifyRunnable, VerifySignals
 from core import signature_verifier
 
+from ui.app_state import AppState
+from ui.widgets.navigation import NavigationRail
+from ui.widgets.flight_header import FlightIdentityBar
+
 
 def _dark_palette() -> QPalette:
     p = QPalette()
@@ -75,6 +79,10 @@ class MainWindow(QMainWindow):
         self._pubkey_str = None
         self._verify_signals: list = []
         self._is_dark = True
+
+        # Central state hub — feeds the Debrief module and FlightIdentityBar.
+        # Existing cross-tab wiring is left intact; AppState is additive.
+        self._app_state = AppState(self)
 
         self._settings = QSettings('TARAlyticsAnalyzer', 'MainWindow')
         self._bin_path = self._settings.value('bin_path', '')
@@ -164,24 +172,51 @@ class MainWindow(QMainWindow):
         from ui.tab_plotter import PlotterTab
         from ui.tab_3d_view import View3DTab
         from ui.tab_map_view import MapTab
+        from ui.modules.mod_debrief import DebriefModule
 
         self._tab_verify  = VerificationTab(self)
         self._tab_plotter = PlotterTab(self)
         self._tab_3d      = View3DTab(self)
         self._tab_map     = MapTab(self)
+        self._mod_debrief = DebriefModule(self._app_state)
 
+        # QTabWidget with a hidden tab bar acts as the page stack; the
+        # NavigationRail drives page switching. Keeping QTabWidget preserves
+        # all existing references and tests.
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._tab_verify,  'Log Verification')
-        self._tabs.addTab(self._tab_plotter, 'Signal Plotter')
-        self._tabs.addTab(self._tab_3d,      '3D Flight View')
-        self._tabs.addTab(self._tab_map,     '2D Map')
+        self._tabs.addTab(self._mod_debrief, 'Debrief')           # index 0
+        self._tabs.addTab(self._tab_plotter, 'Signal Plotter')    # index 1
+        self._tabs.addTab(self._tab_3d,      '3D Flight View')    # index 2
+        self._tabs.addTab(self._tab_verify,  'Log Verification')  # index 3
+        self._tabs.addTab(self._tab_map,     '2D Map')            # index 4
+        self._tabs.tabBar().hide()
+
+        self._nav_rail = NavigationRail(
+            ['DEBRIEF', 'SIGNALS', 'REPLAY', 'VERIFY', 'MAP']
+        )
+        self._nav_rail.module_requested.connect(self._on_module_requested)
+
+        self._flight_bar = FlightIdentityBar(self._app_state)
+
+        body = QWidget()
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+        body_layout.addWidget(self._nav_rail)
+        body_layout.addWidget(self._tabs, 1)
 
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self._tabs)
+        layout.addWidget(self._flight_bar)
+        layout.addWidget(body, 1)
         self.setCentralWidget(central)
+
+        self._nav_rail.set_active(0)
+
+        # Debrief module can request navigation to other modules.
+        self._mod_debrief.nav_requested.connect(self._on_module_requested)
 
         self.data_ready.connect(self._on_data_ready)
 
@@ -201,6 +236,10 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(']'), self).activated.connect(
             lambda: self._tab_3d._replay.step(0.5)
         )
+
+    def _on_module_requested(self, index: int):
+        self._tabs.setCurrentIndex(index)
+        self._nav_rail.set_active(index)
 
     def _update_toolbar_labels(self):
         self._bin_label.setText(_trunc(self._bin_path))
@@ -229,6 +268,7 @@ class MainWindow(QMainWindow):
         if self._key_path:
             self._pubkey_str = signature_verifier.load_pubkey_file(self._key_path)
             self._tab_verify.set_pubkey(self._pubkey_str, self._key_path)
+            self._app_state.set_pubkey(self._pubkey_str, self._key_path)
             if self._raw_bytes:
                 self._run_verification()
 
@@ -282,6 +322,9 @@ class MainWindow(QMainWindow):
         self._tab_plotter.update_data(data)
         self._tab_3d.update_data(data)
         self._tab_map.update_data(data)
+        # Feed the central state hub so the Debrief module and FlightIdentityBar
+        # update. Existing tabs above keep their own direct wiring.
+        self._app_state.set_parsed_data(data, self._raw_bytes, self._bin_path)
         self._run_verification()
 
     def _toggle_theme(self):
@@ -303,6 +346,7 @@ class MainWindow(QMainWindow):
 
     def _on_verify_done(self, result: dict, key_path: str, sigs: object):
         self._tab_verify.update_verification(result, key_path)
+        self._app_state.set_verification(result)
         if sigs in self._verify_signals:
             self._verify_signals.remove(sigs)
 

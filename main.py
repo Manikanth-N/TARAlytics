@@ -46,6 +46,12 @@ def main():
     is_dark = QSettings('TARAlyticsAnalyzer', 'MainWindow').value('is_dark', True, type=bool)
     app.setPalette(_dark_palette() if is_dark else _light_palette())
 
+    # Apply the TARAlytics design-system QSS theme on top of the base palette.
+    # The QSS provides the brand-derived surface tones, typography, and component
+    # styling; the palette above remains for the legacy light/dark toggle.
+    from ui.design.theme import apply_theme
+    apply_theme(app)
+
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

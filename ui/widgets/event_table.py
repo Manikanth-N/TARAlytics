@@ -118,9 +118,8 @@ class EventTable(QTableWidget):
         self._events = []
 
     def populate(self, data: dict):
-        self._events = []
-        self._collect_events(data)
-        self._events.sort(key=lambda e: e[0])
+        from core.event_extractor import EventExtractor
+        self._events = list(EventExtractor.collect(data))
         self.setSortingEnabled(False)
         self.setRowCount(len(self._events))
         for row, (ts, sev, etype, msg) in enumerate(self._events):

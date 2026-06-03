@@ -18,17 +18,28 @@ class TestMainWindowStructure:
     def test_window_title(self, main_window):
         assert main_window.windowTitle() == 'TARAlytics Log Analyzer'
 
-    def test_three_tabs_exist(self, main_window):
-        tabs = main_window.findChild(QTabWidget)
+    def test_tabs_exist(self, main_window):
+        # Five page-stack tabs: Debrief, Signal Plotter, 3D Flight View,
+        # Log Verification, 2D Map. The tab bar is hidden — navigation is
+        # driven by the NavigationRail.
+        tabs = main_window._tabs
         assert tabs is not None
-        assert tabs.count() == 3
+        assert tabs.count() == 5
+        assert tabs.tabBar().isHidden()
 
     def test_tab_names(self, main_window):
-        tabs = main_window.findChild(QTabWidget)
+        tabs = main_window._tabs
         names = [tabs.tabText(i) for i in range(tabs.count())]
         assert 'Log Verification' in names
         assert 'Signal Plotter' in names
         assert '3D Flight View' in names
+        assert 'Debrief' in names
+
+    def test_nav_rail_switches_pages(self, main_window):
+        main_window._on_module_requested(1)
+        assert main_window._tabs.currentIndex() == 1
+        main_window._on_module_requested(0)
+        assert main_window._tabs.currentIndex() == 0
 
     def test_window_minimum_size(self, main_window):
         # resize() was called with 1400×900
