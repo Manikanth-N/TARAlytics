@@ -32,6 +32,18 @@ FORMAT_MAP = {
 SCALE_C = {'c', 'C'}
 SCALE_L = {'L'}
 
+# T2: numpy dtype per DataFlash format char — byte layout matches the packed
+# little-endian struct produced by _build_fmt_struct (FORMAT_MAP), so a structured
+# np.dtype over the format decodes a whole message type in one frombuffer/view.
+NP_TYPE = {
+    'b': '<i1', 'B': '<u1', 'h': '<i2', 'H': '<u2',
+    'i': '<i4', 'I': '<u4', 'q': '<i8', 'Q': '<u8',
+    'f': '<f4', 'd': '<f8', 'e': '<f4', 'c': '<i2',
+    'C': '<u2', 'L': '<i4', 'M': '<u1',
+    'n': 'S4', 'N': 'S16', 'Z': 'S64', 'a': 'S64',
+}
+_STR_FMTS = {'n', 'N', 'Z'}
+
 INSTANCE_COLUMNS = {'I', 'Instance', 'C', 'IMU'}
 # Only integer-typed formats can be instance discriminators; a float column
 # named 'I' (e.g. the PID integral term) is data, not an instance index.
@@ -161,50 +173,188 @@ class DataFlashParser:
             # Unsigned log: no chunk records; parse the whole stream as-is.
             data = raw
 
+        # For signed logs `data` is a separate extracted copy, so the original
+        # file bytes are no longer needed — free them to halve peak RSS.
+        if data is not raw:
+            raw = None
+
         fmt_map = {}
         self._pass1_collect_fmt(data, fmt_map)
 
-        records = {}
-        instanced_cols: dict[str, str] = {}   # base_name -> instance col name
-        self._pass2_parse_all(data, fmt_map, records, signals, instanced_cols)
-
+        # T2: collect per-type record offsets in one lean walk, then decode each
+        # message type with a structured-dtype numpy view (no per-record Python
+        # objects). Scaling, instance routing, and field-bounds filtering are
+        # applied exactly as before.
+        offsets = self._collect_offsets(data, fmt_map, signals)
         result = {}
-        for name, rows in records.items():
-            if not rows:
-                continue
-            m = _INST_PAT.match(name)
-            if m:
-                base_name = m.group(1)
-                all_cols = fmt_map.get(base_name, {}).get('columns', [])
-                inst_col = instanced_cols.get(base_name)
-                cols = [c for c in all_cols if c != inst_col] if inst_col else all_cols
-            else:
-                cols = fmt_map.get(name, {}).get('columns', [])
-            if not cols:
+        for type_id, off in offsets.items():
+            entry = fmt_map.get(type_id)
+            if entry is None or off.size == 0:
                 continue
             try:
-                df = pd.DataFrame(rows, columns=cols)
-                if 'TimeUS' in df.columns:
-                    df = df[(df['TimeUS'] > 0) & (df['TimeUS'] < 3e11)]
-                    df['TimeS'] = df['TimeUS'] / 1e6
-                for col in df.columns:
-                    if col in FIELD_BOUNDS:
-                        lo, hi = FIELD_BOUNDS[col]
-                        df[col] = df[col].where((df[col] >= lo) & (df[col] <= hi))
-                float_cols = [c for c in df.columns
-                              if c not in ('TimeUS', 'TimeS')
-                              and hasattr(df[c], 'dtype')
-                              and df[c].dtype.kind == 'f'
-                              and c not in FIELD_BOUNDS]
-                if float_cols:
-                    mask = (df[float_cols].abs() < 1e9).all(axis=1)
-                    df = df[mask]
-                if not df.empty:
-                    df = df.reset_index(drop=True)
-                result[name] = df
+                for dict_key, df in self._decode_type(data, entry, off):
+                    df = self._apply_filters(df)
+                    result[dict_key] = df
             except Exception:
                 pass
+        if signals:
+            signals.progress.emit(100)
         return dict(sorted(result.items()))
+
+    # ── T2 vectorized decode ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _np_dtype(scales):
+        """Packed structured np.dtype matching the '<'-packed struct for these
+        format chars; or None if any char is unsupported."""
+        fields = []
+        for j, ch in enumerate(scales):
+            t = NP_TYPE.get(ch)
+            if t is None:
+                return None
+            fields.append((f'f{j}', t))
+        return np.dtype(fields)
+
+    def _collect_offsets(self, data: bytes, fmt_map: dict,
+                         signals: Optional[ParserSignals] = None) -> dict:
+        """One sequential walk: per type_id, the body-start offsets of its records.
+        Mirrors the old pass2 record walk (same header/length/skip rules) without
+        decoding — so the set of records is identical."""
+        n = len(data)
+        HEAD1, HEAD2, FMT = self.HEAD1, self.HEAD2, self.FMT_TYPE
+        get = fmt_map.get
+        lists: dict[int, list] = {}
+        i = 0
+        count = 0
+        while i < n - 2:
+            if data[i] != HEAD1 or data[i + 1] != HEAD2:
+                i += 1
+                continue
+            mt = data[i + 2]
+            if mt == FMT:
+                i += self.FMT_RECORD_SIZE
+                count += 1
+                continue
+            entry = get(mt)
+            if entry is None:
+                i += 1
+                continue
+            length = entry['length']
+            if i + length > n:
+                i += 1
+                continue
+            lst = lists.get(mt)
+            if lst is None:
+                lst = lists[mt] = []
+            lst.append(i + 3)
+            i += length
+            count += 1
+            if signals and count % 200000 == 0:
+                signals.progress.emit(min(99, int(i / n * 90)))
+        return {mt: np.array(v, dtype=np.int64) for mt, v in lists.items()}
+
+    def _decode_type(self, data: bytes, entry: dict, off: np.ndarray):
+        """Yield (dict_key, DataFrame) for one message type, decoded in bulk.
+        Reproduces the old per-record behavior: struct size <= body, column
+        truncation, c/C and L scaling, n/N/Z/a decode, and instance routing."""
+        s = entry['struct']
+        scales = entry['scales']
+        columns = entry['columns']
+        name = entry.get('name', '')
+        length = entry['length']
+        # type usable only if the struct fits the declared body and there are at
+        # least as many decoded fields as columns (old code skips otherwise).
+        if s.size > length - 3 or len(columns) > len(scales) or not columns:
+            return
+        dt = self._np_dtype(scales)
+        if dt is None or dt.itemsize != s.size:
+            return
+        L = s.size
+
+        valid = off + L <= len(data)
+        off = off[valid]
+        if off.size == 0:
+            return
+        nrec = off.size
+        u8 = np.frombuffer(data, dtype=np.uint8)
+        ncols = len(columns)
+
+        # Preallocate one output array per column (compact numpy dtype; float for
+        # scaled c/C/L; object for string/array fields), then fill in record chunks.
+        # Chunking + int32 indices bound the gather/index transient regardless of
+        # how many records a type has, keeping peak RSS low.
+        col_arrays = {}
+        for j in range(ncols):
+            ch = scales[j]
+            if ch in SCALE_C or ch in SCALE_L:
+                col_arrays[columns[j]] = np.empty(nrec, np.float64)
+            elif ch in _STR_FMTS or ch == 'a':
+                col_arrays[columns[j]] = np.empty(nrec, object)
+            else:
+                col_arrays[columns[j]] = np.empty(nrec, dt[f'f{j}'])
+
+        ar_L = np.arange(L, dtype=np.int32)
+        CHUNK = 1_000_000
+        for start in range(0, nrec, CHUNK):
+            co = off[start:start + CHUNK].astype(np.int32)
+            end = start + co.size
+            idx = co[:, None] + ar_L[None, :]
+            sa = u8[idx].reshape(-1).view(dt)     # structured view of this chunk
+            for j in range(ncols):
+                ch = scales[j]
+                field = sa[f'f{j}']
+                out = col_arrays[columns[j]]
+                if ch in SCALE_C:
+                    out[start:end] = field.astype(np.float64) / 100.0
+                elif ch in SCALE_L:
+                    out[start:end] = field.astype(np.float64) / 1e7
+                elif ch in _STR_FMTS:
+                    out[start:end] = [b.rstrip(b'\x00').decode('utf-8', errors='replace')
+                                      for b in field]
+                elif ch == 'a':
+                    out[start:end] = [list(struct.unpack('<32h', b)) for b in field]
+                else:
+                    out[start:end] = field
+
+        inst_col = get_instance_col(columns, scales)
+        if inst_col is None:
+            yield name, pd.DataFrame({c: col_arrays[c] for c in columns})
+            return
+
+        # instance routing: split rows by the (integer) instance column, validate,
+        # drop the instance column.
+        inst_vals = col_arrays[inst_col]
+        out_cols = [c for c in columns if c != inst_col]
+        for uval in np.unique(inst_vals):
+            iv = int(uval)
+            if not is_valid_instance(name, iv):
+                continue
+            mask = inst_vals == uval
+            df = pd.DataFrame({c: col_arrays[c][mask] for c in out_cols})
+            yield f'{name}[{iv}]', df
+
+    @staticmethod
+    def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
+        """The exact post-decode filtering from the old df-build loop: TimeUS range +
+        TimeS, FIELD_BOUNDS clamping, and the |x|<1e9 float sanity filter."""
+        if 'TimeUS' in df.columns:
+            df = df[(df['TimeUS'] > 0) & (df['TimeUS'] < 3e11)].copy()
+            df['TimeS'] = df['TimeUS'] / 1e6
+        for col in df.columns:
+            if col in FIELD_BOUNDS:
+                lo, hi = FIELD_BOUNDS[col]
+                df[col] = df[col].where((df[col] >= lo) & (df[col] <= hi))
+        float_cols = [c for c in df.columns
+                      if c not in ('TimeUS', 'TimeS')
+                      and hasattr(df[c], 'dtype')
+                      and df[c].dtype.kind == 'f'
+                      and c not in FIELD_BOUNDS]
+        if float_cols:
+            mask = (df[float_cols].abs() < 1e9).all(axis=1)
+            df = df[mask]
+        if not df.empty:
+            df = df.reset_index(drop=True)
+        return df
 
     def _pass1_collect_fmt(self, data: bytes, fmt_map: dict):
         n = len(data)
