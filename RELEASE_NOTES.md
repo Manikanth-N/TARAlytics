@@ -1,5 +1,21 @@
 # TARAlytics — Release Notes
 
+## v2.0.1
+
+### Customizable navigation (new)
+The navigation rail is now **configurable** — show only the modules you use. Open the
+manager from the **gear (⚙) at the bottom of the nav rail**, the **⚙ Modules** toolbar
+button, or **View → Customize Navigation…** (Ctrl+Shift+M). Pick a preset
+(**Minimal / Flight Test / Full / Custom**), check modules to show/hide, and
+**drag to reorder**. Hidden modules are never removed — they stay fully available
+(including to Workspace panels) and re-enable instantly. Selections persist per user.
+
+**Migration**
+- **Existing users keep the Full layout** — no module disappears after upgrading.
+- **New installs start on Minimal** (Debrief · Workspace · Verification · Replay · Map);
+  everything else is one click away via the gear.
+- Switch presets or build your own at any time; "Restore Defaults" returns to Full.
+
 ## v1.1.0-rc1 — Mission Investigation Workstation (Release Candidate 1)
 
 First release candidate of the investigation workstation. TARAlytics moves from a

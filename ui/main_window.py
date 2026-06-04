@@ -1,4 +1,5 @@
 import os
+import json
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QPushButton, QTabWidget, QProgressBar,
@@ -13,6 +14,7 @@ from core import signature_verifier
 
 from ui.app_state import AppState
 from ui.widgets.navigation import NavigationRail
+from ui import nav_modules
 from ui.widgets.flight_header import FlightIdentityBar
 
 
@@ -172,6 +174,17 @@ class MainWindow(QMainWindow):
         self._theme_btn.clicked.connect(self._toggle_theme)
         toolbar.addWidget(self._theme_btn)
 
+        # ── Module visibility (gear) ──────────────────────────────────────────
+        self._modules_btn = QPushButton('⚙ Modules')
+        self._modules_btn.setToolTip('Customize navigation — show/hide modules')
+        self._modules_btn.setStyleSheet(
+            'QPushButton { background: #3a3a4e; color: #e0e0e0; border-radius: 4px; '
+            'padding: 4px 8px; font-size: 12px; }'
+            'QPushButton:hover { background: #4a4a6e; }'
+        )
+        self._modules_btn.clicked.connect(self._open_module_manager)
+        toolbar.addWidget(self._modules_btn)
+
         from ui.tab_verification import VerificationTab
         from ui.tab_plotter import PlotterTab
         from ui.tab_3d_view import View3DTab
@@ -212,11 +225,12 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._mod_workspace, 'Workspace')         # index 9
         self._tabs.tabBar().hide()
 
+        self._visible_modules = self._load_visible_modules()
         self._nav_rail = NavigationRail(
-            ['DEBRIEF', 'TIMELINE', 'EVENTS', 'SITUATION',
-             'SIGNALS', 'REPLAY', 'VERIFY', 'MAP', 'EVIDENCE', 'WORKSPACE']
+            nav_modules.order_to_navitems(self._visible_modules)
         )
         self._nav_rail.module_requested.connect(self._on_module_requested)
+        self._nav_rail.customize_requested.connect(self._open_module_manager)
 
         self._flight_bar = FlightIdentityBar(self._app_state)
 
@@ -248,6 +262,7 @@ class MainWindow(QMainWindow):
         self._overlay.hide()
 
         self._nav_rail.set_active(0)
+        self._build_menubar()
 
         # Debrief module can request navigation to other modules.
         self._mod_debrief.nav_requested.connect(self._on_module_requested)
@@ -280,8 +295,66 @@ class MainWindow(QMainWindow):
         )
 
     def _on_module_requested(self, index: int):
+        # The page always exists even if its module is hidden from the rail (e.g. a
+        # Debrief quick-jump to a hidden module) — navigate regardless; the rail simply
+        # shows no active item for a hidden page.
         self._tabs.setCurrentIndex(index)
         self._nav_rail.set_active(index)
+
+    # ── Module visibility ─────────────────────────────────────────────────────
+    def _load_visible_modules(self) -> list:
+        """Resolve the visible module id list. Honours a saved selection; otherwise
+        existing installs default to Full (no surprise disappearance on upgrade) and
+        fresh installs default to Minimal."""
+        saved = self._settings.value('nav/visible_modules', None)
+        if saved:
+            try:
+                return nav_modules.sanitize(json.loads(saved))
+            except (ValueError, TypeError):
+                pass
+        # No saved selection yet → decide by whether this is a pre-existing install.
+        existing = any(not k.startswith('nav/') for k in self._settings.allKeys())
+        ids = nav_modules.PRESETS['full'] if existing else nav_modules.PRESETS['minimal']
+        self._settings.setValue('nav/visible_modules', json.dumps(ids))
+        self._settings.setValue('nav/active_preset', 'full' if existing else 'minimal')
+        return list(ids)
+
+    def _load_saved_layouts(self) -> dict:
+        raw = self._settings.value('nav/saved_layouts', '')
+        try:
+            d = json.loads(raw) if raw else {}
+            return {k: nav_modules.sanitize(v) for k, v in d.items()} if isinstance(d, dict) else {}
+        except (ValueError, TypeError):
+            return {}
+
+    def _open_module_manager(self):
+        from ui.widgets.module_visibility import ModuleVisibilityDialog
+        dlg = ModuleVisibilityDialog(self._visible_modules, self._load_saved_layouts(), self)
+        if dlg.exec():
+            self._save_saved_layouts(dlg.saved_layouts())
+            self._apply_visible_modules(dlg.selected_ids())
+
+    def _save_saved_layouts(self, layouts: dict):
+        self._settings.setValue('nav/saved_layouts', json.dumps(layouts))
+
+    def _apply_visible_modules(self, ids: list):
+        ids = nav_modules.sanitize(ids)
+        self._visible_modules = ids
+        self._settings.setValue('nav/visible_modules', json.dumps(ids))
+        self._settings.setValue('nav/active_preset', nav_modules.detect_preset(ids))
+        self._nav_rail.set_modules(nav_modules.order_to_navitems(ids))
+        # If the page we're on is no longer visible, fall back to the first visible one.
+        visible_pages = self._nav_rail.visible_pages()
+        if self._tabs.currentIndex() not in visible_pages and visible_pages:
+            self._on_module_requested(visible_pages[0])
+        else:
+            self._nav_rail.set_active(self._tabs.currentIndex())
+
+    def _build_menubar(self):
+        view_menu = self.menuBar().addMenu('&View')
+        act = view_menu.addAction('Customize Navigation…')
+        act.setShortcut(QKeySequence('Ctrl+Shift+M'))
+        act.triggered.connect(self._open_module_manager)
 
     def _update_toolbar_labels(self):
         self._bin_label.setText(_trunc(self._bin_path))

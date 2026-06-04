@@ -1,9 +1,11 @@
 """
 NavigationRail — left-edge module switcher.
 
-64px wide (Sprint-1 adjustment from 48px). Each item shows an icon glyph and
-a short label; the active item carries a brand-blue left bar derived from the
-eagle-beak direction cue.
+64px wide. Each item shows an icon glyph and a short label; the active item carries a
+brand-blue left bar. The rail shows an ordered *subset* of modules (visibility is
+user-configurable) — each item carries its target page index, so filtering/reordering
+the rail never mis-routes a click. A gear button is pinned to the footer to open the
+Module Visibility manager.
 """
 from __future__ import annotations
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QSizePolicy
@@ -24,15 +26,17 @@ _ICONS = {
     'MAP':       '◎',
     'EVIDENCE':  '🗎',
     'WORKSPACE': '▦',
+    'CUSTOMIZE': '⚙',
 }
 
 
 class NavItem(QWidget):
+    # Emits the target *page index* (not the item's position in the rail).
     clicked = pyqtSignal(int)
 
-    def __init__(self, index: int, label: str, parent=None):
+    def __init__(self, page_index: int, label: str, parent=None):
         super().__init__(parent)
-        self._index  = index
+        self._page_index = page_index
         self._label  = label
         self._icon   = _ICONS.get(label, '○')
         self._active = False
@@ -40,6 +44,10 @@ class NavItem(QWidget):
         self.setFixedSize(T.layout.nav_rail_width, 56)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(label)
+
+    @property
+    def page_index(self) -> int:
+        return self._page_index
 
     def set_active(self, active: bool):
         self._active = active
@@ -50,7 +58,7 @@ class NavItem(QWidget):
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self._index)
+            self.clicked.emit(self._page_index)
 
     def paintEvent(self, _):
         p = QPainter(self)
@@ -80,34 +88,66 @@ class NavItem(QWidget):
         p.end()
 
 
-class NavigationRail(QWidget):
-    module_requested = pyqtSignal(int)
+class GearItem(NavItem):
+    """Footer gear that opens the Module Visibility manager (not a module page)."""
+    customize = pyqtSignal()
 
-    def __init__(self, items: list[str], parent=None):
-        """items: ordered list of labels matching QStackedWidget indices."""
+    def __init__(self, parent=None):
+        super().__init__(-1, 'CUSTOMIZE', parent)
+        self.setToolTip('Customize navigation — show/hide modules')
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.customize.emit()
+
+
+class NavigationRail(QWidget):
+    module_requested    = pyqtSignal(int)   # page index
+    customize_requested = pyqtSignal()
+
+    def __init__(self, modules: list | None = None, parent=None):
+        """modules: ordered list of (page_index, label) to display."""
         super().__init__(parent)
         self._items: list[NavItem] = []
+        self._active_page = -1
         self.setFixedWidth(T.layout.nav_rail_width)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, T.spacing.px16, 0, T.spacing.px16)
-        layout.setSpacing(4)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, T.spacing.px16, 0, T.spacing.px16)
+        self._layout.setSpacing(4)
+        self._layout.addStretch()                 # pushes the gear to the footer
 
-        for i, label in enumerate(items):
-            item = NavItem(i, label)
-            item.clicked.connect(self._on_clicked)
+        self._gear = GearItem()
+        self._gear.customize.connect(self.customize_requested)
+        self._layout.addWidget(self._gear, 0, Qt.AlignmentFlag.AlignBottom)
+
+        if modules:
+            self.set_modules(modules)
+
+    def set_modules(self, modules: list):
+        """Rebuild the rail from an ordered list of (page_index, label). No gaps and
+        no disabled items — only the requested modules are created."""
+        for item in self._items:
+            self._layout.removeWidget(item)
+            item.setParent(None)
+            item.deleteLater()
+        self._items = []
+        # Insert above the stretch (which sits just before the gear).
+        for pos, (page_index, label) in enumerate(modules):
+            item = NavItem(page_index, label)
+            item.clicked.connect(self.module_requested)
+            self._layout.insertWidget(pos, item)
             self._items.append(item)
-            layout.addWidget(item)
-        layout.addStretch()
+        self.set_active(self._active_page)
 
-    def _on_clicked(self, index: int):
-        self.set_active(index)
-        self.module_requested.emit(index)
+    def visible_pages(self) -> list:
+        return [it.page_index for it in self._items]
 
-    def set_active(self, index: int):
-        for i, item in enumerate(self._items):
-            item.set_active(i == index)
+    def set_active(self, page_index: int):
+        self._active_page = page_index
+        for item in self._items:
+            item.set_active(item.page_index == page_index)
 
     def paintEvent(self, _):
         p = QPainter(self)
