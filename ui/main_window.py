@@ -202,12 +202,16 @@ class MainWindow(QMainWindow):
 
         self._flight_bar = FlightIdentityBar(self._app_state)
 
+        from ui.widgets.cursor_dock import CursorDock
+        self._cursor_dock = CursorDock(self._app_state)
+
         body = QWidget()
         body_layout = QHBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(0)
         body_layout.addWidget(self._nav_rail)
         body_layout.addWidget(self._tabs, 1)
+        body_layout.addWidget(self._cursor_dock)   # persistent right context dock
 
         central = QWidget()
         layout = QVBoxLayout(central)

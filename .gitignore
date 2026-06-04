@@ -28,3 +28,6 @@ tests/__pycache__/
 
 # Agent memory (lives in ~/.claude, must not be committed)
 memory/
+
+# Local Claude runtime state
+.claude/
