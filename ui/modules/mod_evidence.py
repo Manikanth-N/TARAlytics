@@ -17,12 +17,13 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QAbstractItemView, QTextBrowser, QComboBox,
     QLineEdit, QFileDialog, QSplitter,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont, QTextDocument, QPdfWriter, QPageSize
+from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtGui import QColor, QFont, QTextDocument, QPdfWriter, QPageSize, QImage
 
 from ui.design.tokens import T
 from ui.app_state import AppState
 from ui.widgets.module_header import ModuleHeader
+from ui.evidence_plots import render_finding_plot
 from core import evidence_export as ex
 
 _STATUS = ['OPEN', 'REVIEWED', 'FLAGGED']
@@ -31,12 +32,16 @@ _STATUS_COLOR = {'OPEN': T.text.muted, 'REVIEWED': T.status.nominal,
 _MD_GH = QTextDocument.MarkdownFeature.MarkdownDialectGitHub
 
 
-def export_pdf(markdown: str, path: str, title: str = 'TARAlytics Evidence'):
-    """Render a Markdown evidence report to PDF via Qt (no external PDF lib)."""
+def export_pdf(markdown: str, path: str, title: str = 'TARAlytics Evidence',
+               image_resources=None):
+    """Render a Markdown evidence report to PDF via Qt (no external PDF lib).
+    image_resources: list of (QUrl, file_path) to embed (finding plots)."""
     writer = QPdfWriter(path)
     writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
     writer.setTitle(title)
     doc = QTextDocument()
+    for url, file in (image_resources or []):
+        doc.addResource(QTextDocument.ResourceType.ImageResource, url, QImage(file))
     doc.setMarkdown(markdown, _MD_GH)
     doc.print(writer)
 
@@ -163,10 +168,16 @@ class EvidenceModule(QWidget):
                 it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 self._list.setItem(r, c, it)
         has = bool(snaps)
-        for b in (self._b_json, self._b_md, self._b_pdf, self._b_clear):
-            b.setEnabled(has)
+        report = self._app.flight_report
+        self._b_clear.setEnabled(has)
+        for b in (self._b_json, self._b_md, self._b_pdf):     # exportable with just a report
+            b.setEnabled(has or report is not None)
         if not has:
-            self._detail.clear()
+            # no snapshots — show the whole-flight assessment narrative
+            if report is not None:
+                self._detail.setMarkdown(ex.to_markdown([], self._app.evidence_meta(), report))
+            else:
+                self._detail.clear()
         else:
             self._list.selectRow(min(self._list.currentRow() if self._list.currentRow() >= 0 else 0,
                                      len(snaps) - 1))
@@ -212,7 +223,8 @@ class EvidenceModule(QWidget):
 
     def _export(self, kind: str):
         snaps = self._snaps()
-        if not snaps:
+        report = self._app.flight_report
+        if not snaps and report is None:
             return
         meta = self._app.evidence_meta()
         base = os.path.splitext(os.path.basename(meta.get('log_path') or 'flight'))[0]
@@ -224,11 +236,31 @@ class EvidenceModule(QWidget):
             return
         if kind == 'json':
             with open(path, 'w') as f:
-                f.write(ex.to_json(snaps, meta))
+                f.write(ex.to_json(snaps, meta, report))
         elif kind == 'md':
+            # render finding plots into a sidecar folder; reference them relatively
+            plot_paths = {}
+            if report and report.findings:
+                pdir = os.path.join(os.path.dirname(path), f'{base}_plots')
+                os.makedirs(pdir, exist_ok=True)
+                for i, f in enumerate(report.findings):
+                    fp = os.path.join(pdir, f'finding_{i + 1}.png')
+                    if render_finding_plot(self._app.data, f, fp):
+                        plot_paths[i] = f'{base}_plots/finding_{i + 1}.png'
             with open(path, 'w') as f:
-                f.write(ex.to_markdown(snaps, meta))
+                f.write(ex.to_markdown(snaps, meta, report, plot_paths))
         else:
-            export_pdf(ex.to_markdown(snaps, meta), path,
-                       title=f'TARAlytics Evidence — {base}')
-        self._count.setText(f'{len(snaps)} snapshots · exported {os.path.basename(path)}')
+            import tempfile
+            tmp = tempfile.mkdtemp(prefix='taralytics_ev_')
+            plot_urls, resources = {}, []
+            if report and report.findings:
+                for i, fd in enumerate(report.findings):
+                    fp = os.path.join(tmp, f'finding_{i + 1}.png')
+                    if render_finding_plot(self._app.data, fd, fp):
+                        url = QUrl.fromLocalFile(fp)
+                        plot_urls[i] = url.toString()
+                        resources.append((url, fp))
+            export_pdf(ex.to_markdown(snaps, meta, report, plot_urls), path,
+                       title=f'TARAlytics Evidence — {base}', image_resources=resources)
+        self._count.setText(f'exported {os.path.basename(path)} '
+                            f'({len(snaps)} snapshots, {len(report.findings) if report else 0} findings)')

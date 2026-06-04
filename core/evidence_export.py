@@ -22,9 +22,9 @@ def _f(v, fmt='{:.2f}', unit='', none='—'):
     return f'{s}{sep}{unit}'
 
 
-def build_report(snapshots: list, meta: dict | None = None) -> dict:
+def build_report(snapshots: list, meta: dict | None = None, report=None) -> dict:
     meta = dict(meta or {})
-    return {
+    out = {
         'application': _APP,
         'report_type': 'investigation_evidence',
         'generated_at': datetime.now().isoformat(timespec='seconds'),
@@ -38,10 +38,53 @@ def build_report(snapshots: list, meta: dict | None = None) -> dict:
         'snapshot_count': len(snapshots),
         'snapshots': [s.to_dict() for s in snapshots],
     }
+    if report is not None:
+        out['flight_assessment'] = report.to_dict()
+    return out
 
 
-def to_json(snapshots: list, meta: dict | None = None) -> str:
-    return json.dumps(build_report(snapshots, meta), indent=2, default=str)
+def to_json(snapshots: list, meta: dict | None = None, report=None) -> str:
+    return json.dumps(build_report(snapshots, meta, report), indent=2, default=str)
+
+
+def _conclusion_md(report) -> str:
+    q = report.quality
+    sc = report.scorecard
+    score = '—' if q.score is None else f'{q.score:.0f}'
+    lines = ['## Conclusion', '',
+             f'**Verdict: {q.verdict} ({score}/100)**', '',
+             q.headline, '']
+    if q.factors:
+        lines.append('Drivers: ' + ' · '.join(q.factors))
+        lines.append('')
+    lines += ['| Category | Score | Grade |', '|---|---|---|']
+    if sc.overall is not None:
+        lines.append(f'| **Overall** | **{sc.overall:.0f}** | **{sc.grade}** |')
+    for c in sc.categories:
+        s = '—' if c.score is None else f'{c.score:.0f}'
+        lines.append(f'| {c.name} | {s} | {c.grade or "—"} |')
+    lines += ['',
+              f'**Flight:** {report.flight_count} flight(s), '
+              f'{report.armed_duration_s:.0f} s armed.', '', '---', '']
+    return '\n'.join(lines)
+
+
+def _findings_md(report, plot_paths: dict | None) -> str:
+    if not report.findings:
+        return '## Findings\n\n_No automated findings — clean flight._\n\n---\n'
+    out = [f'## Findings ({len(report.findings)})', '']
+    for i, f in enumerate(report.findings):
+        when = f' @ {f.t_start:.1f} s' if f.t_start is not None else ''
+        out += [f'### {i + 1}. [{f.severity}] {f.category} — {f.title}', '',
+                f'{f.detail}{when}', '']
+        if f.evidence:
+            out.append('**Supporting evidence:** ' + ', '.join(f'`{e}`' for e in f.evidence))
+            out.append('')
+        if plot_paths and i in plot_paths:
+            out.append(f'![{f.title}]({plot_paths[i]})')
+            out.append('')
+        out.append('---'); out.append('')
+    return '\n'.join(out)
 
 
 def _control_table(s) -> str:
@@ -149,8 +192,13 @@ def _provenance_table(s) -> str:
     return '\n'.join(rows)
 
 
-def to_markdown(snapshots: list, meta: dict | None = None) -> str:
+def to_markdown(snapshots: list, meta: dict | None = None, report=None,
+                plot_paths: dict | None = None) -> str:
     meta = dict(meta or {})
+    verdict = ''
+    if report is not None and report.quality.score is not None:
+        verdict = f"**Assessment:** {report.quality.verdict} " \
+                  f"({report.quality.score:.0f}/100)  "
     head = [
         f'# {_APP} — Investigation Evidence',
         '',
@@ -159,12 +207,19 @@ def to_markdown(snapshots: list, meta: dict | None = None) -> str:
         f"**Aircraft:** {meta.get('serial_number', '—')} · "
         f"{meta.get('firmware', '—')} · {meta.get('frame_type', '—')}  ",
         f"**Verification:** {meta.get('verification_state', '—')}  ",
-        f"**Snapshots:** {len(snapshots)}",
-        '',
-        '---',
-        '',
     ]
-    if not snapshots:
-        head.append('_No snapshots captured._')
-        return '\n'.join(head)
-    return '\n'.join(head) + '\n'.join(_snapshot_md(s) for s in snapshots)
+    if verdict:
+        head.append(verdict)
+    head += [f"**Snapshots:** {len(snapshots)}", '', '---', '']
+
+    body = []
+    if report is not None:
+        body.append(_conclusion_md(report))
+        body.append(_findings_md(report, plot_paths))
+    if snapshots:
+        body.append('## Investigation Snapshots')
+        body.append('')
+        body.append('\n'.join(_snapshot_md(s) for s in snapshots))
+    elif report is None:
+        body.append('_No snapshots captured._')
+    return '\n'.join(head) + '\n' + '\n'.join(body)

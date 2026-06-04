@@ -194,6 +194,78 @@ class TestExport:
         assert p.read_bytes()[:4] == b'%PDF'
 
 
+def _osc_report():
+    """Analytics report on a flight with an injected roll oscillation (→ a finding)."""
+    from core.flight_analytics import analyze
+    n = 4000; t = np.linspace(0.0, 80.0, n)
+    agl = np.interp(t, [0, 5, 10, 50, 72, 80], [0, 0, 20, 20, 0, 0])
+    z = np.zeros(n)
+    data = {
+        'ARM': pd.DataFrame({'TimeS': [5.0, 75.0], 'ArmState': [1, 0]}),
+        'MODE': pd.DataFrame({'TimeS': [5.0], 'Mode': [5]}),
+        'PARM': pd.DataFrame({'Name': ['RCMAP_ROLL', 'MOT_PWM_MIN', 'MOT_PWM_MAX'],
+                              'Value': [1.0, 1000.0, 2000.0]}),
+        'ATT': pd.DataFrame({'TimeS': t, 'DesRoll': z.copy(),
+                             'Roll': 6.0 * np.sin(2 * np.pi * 4 * t),
+                             'DesPitch': z.copy(), 'Pitch': z.copy(),
+                             'DesYaw': np.full(n, 90.0), 'Yaw': np.full(n, 90.0)}),
+        'RCIN': pd.DataFrame({'TimeS': t, 'C1': np.full(n, 1500.0)}),
+        'RCOU': pd.DataFrame({'TimeS': t, 'C1': np.full(n, 1500.0)}),
+        'BARO[0]': pd.DataFrame({'TimeS': t, 'Alt': agl, 'CRt': np.gradient(agl, t)}),
+        'POS': pd.DataFrame({'TimeS': t, 'RelHomeAlt': agl}),
+    }
+    return analyze(data), data
+
+
+class TestNarrativeReport:
+    def test_markdown_has_conclusion_and_findings(self):
+        from core import evidence_export as ex
+        report, _ = _osc_report()
+        md = ex.to_markdown([], {'log_path': 'x.bin'}, report)
+        assert '## Conclusion' in md and '## Findings' in md
+        assert 'Verdict:' in md and 'Roll oscillation' in md
+        assert 'Supporting evidence:' in md
+
+    def test_json_includes_flight_assessment(self):
+        from core import evidence_export as ex
+        report, _ = _osc_report()
+        rep = json.loads(ex.to_json([], {}, report))
+        assert 'flight_assessment' in rep
+        assert rep['flight_assessment']['quality']['verdict'] in (
+            'MARGINAL', 'POOR', 'ACCEPTABLE', 'GOOD')
+
+    def test_finding_plot_renders_png(self, qtbot, tmp_path):
+        from ui.evidence_plots import render_finding_plot, can_plot
+        report, data = _osc_report()
+        osc = next(f for f in report.findings if f.category == 'OSCILLATION')
+        assert can_plot(data, osc)
+        p = tmp_path / 'finding.png'
+        assert render_finding_plot(data, osc, str(p))
+        assert p.exists() and p.read_bytes()[:8] == b'\x89PNG\r\n\x1a\n'
+
+    def test_markdown_embeds_plot_reference(self):
+        from core import evidence_export as ex
+        report, _ = _osc_report()
+        i = next(k for k, f in enumerate(report.findings) if f.category == 'OSCILLATION')
+        md = ex.to_markdown([], {}, report, {i: 'plots/finding.png'})
+        assert '![' in md and 'plots/finding.png' in md
+
+    def test_pdf_with_embedded_plots(self, qtbot, tmp_path):
+        from core import evidence_export as ex
+        from ui.evidence_plots import render_finding_plot
+        from ui.modules.mod_evidence import export_pdf
+        from PyQt6.QtCore import QUrl
+        report, data = _osc_report()
+        urls, resources = {}, []
+        for i, f in enumerate(report.findings):
+            fp = tmp_path / f'f{i}.png'
+            if render_finding_plot(data, f, str(fp)):
+                u = QUrl.fromLocalFile(str(fp)); urls[i] = u.toString(); resources.append((u, str(fp)))
+        out = tmp_path / 'report.pdf'
+        export_pdf(ex.to_markdown([], {}, report, urls), str(out), image_resources=resources)
+        assert out.read_bytes()[:4] == b'%PDF' and out.stat().st_size > 0
+
+
 # ── AppState snapshot store ──────────────────────────────────────────────────
 
 class TestAppStateSnapshots:

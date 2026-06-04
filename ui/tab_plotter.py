@@ -525,21 +525,24 @@ class PlotterTab(QWidget):
     def _update_event_label_positions(self):
         if not self._event_items:
             return
+        # Bail if the view/scene has been torn down (deferred timer after close).
+        if self._vb is None or self._vb.scene() is None:
+            return
         try:
             xr = self._vb.viewRange()[0]
             yr = self._vb.viewRange()[1]
             xmin, xmax = xr
             ymin, ymax = yr
+            x_margin = (xmax - xmin) * 0.01
+            for item in self._event_items:
+                y_frac = item.get('y_frac', 0.85)
+                y_pos = ymin + (ymax - ymin) * y_frac
+                x = item['ts']
+                if x < xmin:
+                    x = xmin + x_margin
+                item['label'].setPos(x, y_pos)
         except Exception:
             return
-        x_margin = (xmax - xmin) * 0.01
-        for item in self._event_items:
-            y_frac = item.get('y_frac', 0.85)
-            y_pos = ymin + (ymax - ymin) * y_frac
-            x = item['ts']
-            if x < xmin:
-                x = xmin + x_margin
-            item['label'].setPos(x, y_pos)
 
     def _clear_event_lines(self):
         for item in self._event_items:
@@ -827,7 +830,10 @@ class PlotterTab(QWidget):
     # ── Stats ─────────────────────────────────────────────────────────────────
 
     def _update_all_stats(self):
-        x0, x1 = self._plot.getViewBox().viewRange()[0]
+        vb = self._plot.getViewBox() if self._plot is not None else None
+        if vb is None:        # deferred timer fired after the widget was torn down
+            return
+        x0, x1 = vb.viewRange()[0]
         for key, sig in self._active_sigs.items():
             times, values = sig['times'], sig['values']
             mask = (times >= x0) & (times <= x1)
@@ -1010,6 +1016,11 @@ class PlotterTab(QWidget):
     # ── Public API (called from other tabs) ───────────────────────────────────
 
     def set_crosshair(self, t_abs: float):
+        # Bail if the crosshair's view/scene is gone (deferred cursor signal after
+        # the widget was torn down — avoids a pyqtgraph InfiniteLine boundingRect
+        # crash during teardown).
+        if self._crosshair_v is None or self._crosshair_v.scene() is None:
+            return
         self._crosshair_v.setPos(t_abs - self._t_offset)
 
     def set_events(self, events: list):
