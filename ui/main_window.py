@@ -176,6 +176,7 @@ class MainWindow(QMainWindow):
         from ui.modules.mod_timeline import TimelineModule
         from ui.modules.mod_events import EventsModule
         from ui.modules.mod_situation import SituationModule
+        from ui.modules.mod_evidence import EvidenceModule
 
         self._tab_verify  = VerificationTab(self)
         self._tab_plotter = PlotterTab(self)
@@ -185,6 +186,7 @@ class MainWindow(QMainWindow):
         self._mod_timeline = TimelineModule(self._app_state)
         self._mod_events = EventsModule(self._app_state)
         self._mod_situation = SituationModule(self._app_state)
+        self._mod_evidence = EvidenceModule(self._app_state)
 
         # QTabWidget with a hidden tab bar acts as the page stack; the
         # NavigationRail drives page switching. Keeping QTabWidget preserves
@@ -199,11 +201,12 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._tab_3d,        '3D Flight View')    # index 5
         self._tabs.addTab(self._tab_verify,    'Log Verification')  # index 6
         self._tabs.addTab(self._tab_map,       '2D Map')            # index 7
+        self._tabs.addTab(self._mod_evidence,  'Evidence')          # index 8
         self._tabs.tabBar().hide()
 
         self._nav_rail = NavigationRail(
             ['DEBRIEF', 'TIMELINE', 'EVENTS', 'SITUATION',
-             'SIGNALS', 'REPLAY', 'VERIFY', 'MAP']
+             'SIGNALS', 'REPLAY', 'VERIFY', 'MAP', 'EVIDENCE']
         )
         self._nav_rail.module_requested.connect(self._on_module_requested)
 

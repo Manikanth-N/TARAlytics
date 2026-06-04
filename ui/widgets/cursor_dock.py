@@ -25,6 +25,7 @@ from PyQt6.QtGui import QFont, QColor
 
 from ui.design.tokens import T
 from core.health_analyzer import GPS_FIX_NAMES
+from core import diagnostics
 
 
 # ── altitude / gps source resolution (documented hierarchy, via SampleService) ─
@@ -172,10 +173,13 @@ class CursorContextPanel(QWidget):
     GPS status, satellites, verification — plus the AttitudeMatrix. Answers
     'what was happening' without opening a plot."""
 
-    _FIELDS = ['flight', 'time', 'phase', 'mode', 'alt', 'speed', 'gps', 'sats', 'verify']
+    _FIELDS = ['flight', 'time', 'phase', 'mode', 'alt', 'vspeed', 'speed',
+               'gps', 'sats', 'ekf', 'posdiv', 'verify']
     _LABELS = {'flight': 'Flight', 'time': 'Time', 'phase': 'Phase', 'mode': 'Mode',
-               'alt': 'Alt AGL', 'speed': 'Speed', 'gps': 'GPS', 'sats': 'Sats',
+               'alt': 'Alt AGL', 'vspeed': 'V.Speed', 'speed': 'Speed',
+               'gps': 'GPS', 'sats': 'Sats', 'ekf': 'EKF', 'posdiv': 'Pos Div',
                'verify': 'Verify'}
+    _STATE_COLOR = {'OK': '', 'CAUTION': T.status.caution, 'CRITICAL': T.status.critical}
 
     def __init__(self, app_state, parent=None):
         super().__init__(parent)
@@ -231,11 +235,13 @@ class CursorContextPanel(QWidget):
     def refresh(self, t: float):
         svc = self._app.sample_service
         tm = self._app.timeline_model
+        data = self._app.data
         v = self._vals
         v['time'].setText(f'{t:.2f} s')
         if svc is None or tm is None:
-            for k in ('flight', 'phase', 'mode', 'alt', 'speed', 'gps', 'sats'):
-                v[k].setText('—')
+            for k in ('flight', 'phase', 'mode', 'alt', 'vspeed', 'speed',
+                      'gps', 'sats', 'ekf', 'posdiv'):
+                v[k].setText('—'); v[k].setStyleSheet(f'color: {T.text.primary};')
             self._matrix._blank()
             self._refresh_verify()
             return
@@ -271,8 +277,25 @@ class CursorContextPanel(QWidget):
             v['gps'].setText('SITL' if 'SIM2' in self._app.data else '—')
             v['sats'].setText('—')
 
+        # diagnostic aids: vertical speed, EKF health, position divergence
+        vs = diagnostics.vertical_speed_at(svc, data, t)
+        v['vspeed'].setText('—' if vs['value'] is None else f'{vs["value"]:+.1f} m/s')
+        ekf = diagnostics.ekf_status_at(svc, data, t)
+        self._set_indicator('ekf', ekf['state'] if ekf['ratio'] is not None else '—',
+                            ekf['state'])
+        pd = diagnostics.position_divergence_at(svc, data, t)
+        self._set_indicator('posdiv',
+                            '—' if pd['value'] is None else f'{pd["value"]:.1f} m',
+                            pd['state'])
+
         self._matrix.refresh(t)
         self._refresh_verify()
+
+    def _set_indicator(self, key: str, text: str, state: str):
+        lbl = self._vals[key]
+        lbl.setText(text)
+        colour = self._STATE_COLOR.get(state) or T.text.primary
+        lbl.setStyleSheet(f'color: {colour};')
 
     def _refresh_verify(self):
         state = getattr(self._app.verification, 'state', 'NOT_LOADED')
@@ -441,8 +464,8 @@ class CursorDock(QWidget):
         snap_row = QHBoxLayout(); snap_row.setSpacing(T.spacing.px8)
         self._snap_btn = QPushButton('★ Snapshot')
         self._snap_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._snap_btn.setToolTip('Capture the current cursor moment '
-                                  '(Investigation Snapshot — placeholder)')
+        self._snap_btn.setToolTip('Capture an Investigation Snapshot at the cursor '
+                                  '(manage & export in the Evidence module)')
         self._snap_btn.setStyleSheet(
             f'QPushButton {{ background: {T.surface.card}; color: {T.brand.blue_bright}; '
             f'border: 1px solid {T.border.active}; border-radius: 3px; '
@@ -463,7 +486,6 @@ class CursorDock(QWidget):
         self._values = ValuesAtCursorTable(app_state)
         root.addWidget(self._values, 1)
 
-        self._snapshots: list = []     # placeholder store; export wired in a later step
         app_state.connect_cursor(self._refresh, 'CursorDock')
         app_state.data_changed.connect(lambda *_: self._refresh(app_state.cursor_time))
 
@@ -472,11 +494,13 @@ class CursorDock(QWidget):
         self._values.refresh(t)
 
     def _on_snapshot(self):
-        """Placeholder Investigation Snapshot: records the cursor time + a count.
-        Full provenance capture / evidence export is a later step."""
-        t = self._app.cursor_time
-        self._snapshots.append(t)
-        self._snap_status.setText(f'#{len(self._snapshots)} @ {t:.2f}s · saved (placeholder)')
+        """Capture an Investigation Snapshot at the current cursor (P2)."""
+        snap = self._app.capture_snapshot()
+        if snap is None:
+            self._snap_status.setText('no log loaded')
+            return
+        self._snap_status.setText(
+            f'#{snap.index} @ {snap.cursor_time:.2f}s captured · {len(self._app.snapshots)} total')
 
     # exposed for tests
     @property

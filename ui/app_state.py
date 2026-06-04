@@ -52,6 +52,7 @@ class AppState(QObject):
     cursor_time_changed  = pyqtSignal(float)    # absolute time
     event_jumped         = pyqtSignal(float)    # absolute time (event click)
     module_requested     = pyqtSignal(int)      # nav rail / module switch
+    snapshots_changed    = pyqtSignal()         # investigation snapshot store changed
     parse_progress       = pyqtSignal(int)      # 0-100
     parse_started        = pyqtSignal()
     parse_error          = pyqtSignal(str)
@@ -74,6 +75,10 @@ class AppState(QObject):
         self._sample_service = None
         self._timeline_model = None
         self._rc_model = None
+
+        # investigation snapshots (P2) — per-log session, cleared on reload
+        from core.snapshot import SnapshotStore
+        self._snapshots = SnapshotStore()
 
     # ── Read-only properties ───────────────────────────────────────────────
 
@@ -106,8 +111,11 @@ class AppState(QObject):
         self._timeline_model = None
         self._rc_model = None
         self._cursor_time = 0.0
+        # Snapshots reference this log; clear them on reload.
+        self._snapshots.clear()
         self.meta_changed.emit(self._meta)
         self.data_changed.emit(data)
+        self.snapshots_changed.emit()
 
     def set_verification(self, result: dict):
         h = result.get('hashes', {}) or {}
@@ -162,6 +170,49 @@ class AppState(QObject):
         in one operation, so all surfaces update from a single user action."""
         self.event_jumped.emit(float(t_absolute))
         self.set_cursor_time(t_absolute)
+
+    # ── Investigation snapshots (P2) ────────────────────────────────────────
+
+    @property
+    def snapshots(self):
+        """The session's SnapshotStore (Evidence module reads this)."""
+        return self._snapshots
+
+    def capture_snapshot(self, event: Optional[dict] = None,
+                         notes: str = '', status: str = 'OPEN'):
+        """Build an InvestigationSnapshot at the current cursor from the shared
+        services and append it to the store. Returns the snapshot, or None if no
+        data is loaded."""
+        if not self._data:
+            return None
+        from core.snapshot import build_snapshot
+        snap = build_snapshot(
+            index=len(self._snapshots) + 1,
+            svc=self.sample_service, tm=self.timeline_model, rc=self.rc_model,
+            data=self._data, t=self._cursor_time,
+            verification_state=self._verify.state,
+            log_path=self._bin_path, event=event, notes=notes, status=status)
+        self._snapshots.add(snap)
+        self.snapshots_changed.emit()
+        return snap
+
+    def remove_snapshot(self, index_in_list: int):
+        self._snapshots.remove(index_in_list)
+        self.snapshots_changed.emit()
+
+    def clear_snapshots(self):
+        self._snapshots.clear()
+        self.snapshots_changed.emit()
+
+    def evidence_meta(self) -> dict:
+        """Report metadata for the evidence exporters."""
+        return {
+            'log_path': self._bin_path,
+            'serial_number': self._meta.serial_number,
+            'firmware': self._meta.firmware,
+            'frame_type': self._meta.frame_type,
+            'verification_state': self._verify.state,
+        }
 
     def connect_cursor(self, slot, name: str):
         """Subscribe a surface to the shared cursor and register it by name.

@@ -22,6 +22,7 @@ _ICONS = {
     'REPLAY':    '▶',
     'VERIFY':    '⬡',
     'MAP':       '◎',
+    'EVIDENCE':  '🗎',
 }
 
 

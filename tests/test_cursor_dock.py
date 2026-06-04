@@ -185,9 +185,10 @@ class TestAttitudeMatrix:
         assert m[('throttle', 'demand')].text() == '—'
         assert m[('throttle', 'delta')].text() == '—'
 
-    def test_snapshot_placeholder_records(self, dock):
+    def test_snapshot_captures_to_store(self, dock):
         d, st = dock
         st.set_cursor_time(42.0)
         d._on_snapshot()
-        assert len(d._snapshots) == 1
+        assert len(st.snapshots) == 1
+        assert st.snapshots.all()[0].cursor_time == pytest.approx(42.0)
         assert '42.00' in d._snap_status.text()

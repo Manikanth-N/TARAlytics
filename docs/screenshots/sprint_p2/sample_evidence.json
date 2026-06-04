@@ -1,0 +1,213 @@
+{
+  "application": "TARAlytics",
+  "report_type": "investigation_evidence",
+  "generated_at": "2026-06-04T07:37:15",
+  "flight": {
+    "log_path": "/home/manikanth/Downloads/00000012(1).BIN",
+    "serial_number": "\u2014",
+    "firmware": "ArduCopter V4.6.3",
+    "frame_type": "QUAD/PLUS",
+    "verification_state": "NOT_LOADED"
+  },
+  "snapshot_count": 3,
+  "snapshots": [
+    {
+      "index": 1,
+      "captured_at": "2026-06-04T07:37:15",
+      "cursor_time": 135.0,
+      "log_path": "/home/manikanth/Downloads/00000012(1).BIN",
+      "event": {
+        "time": 135.491615,
+        "severity": "INFO",
+        "type": "EV",
+        "message": "EV_62"
+      },
+      "flight_index": 0,
+      "flight_total": 1,
+      "phase": "CLIMB",
+      "mode": "GUIDED",
+      "position": {
+        "lat": -35.3632619,
+        "lng": 149.1652371
+      },
+      "altitude_agl": 1.7655547220452144,
+      "altitude_source": "POS.RelHomeAlt",
+      "vertical_speed": 1.4999108270627552,
+      "vertical_speed_source": "BARO[0].CRt",
+      "ground_speed": 0.04057247005000557,
+      "gps_fix": "RTK_FIXED",
+      "gps_sats": 10,
+      "pilot": {
+        "roll": 0.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "throttle": 0.0
+      },
+      "demand": {
+        "roll": 0.4481617806159576,
+        "pitch": 0.42269634541009304,
+        "yaw": 353.909683437584,
+        "throttle": null
+      },
+      "response": {
+        "roll": 0.35117383392131885,
+        "pitch": 0.3277742754964646,
+        "yaw": 353.8928858213207,
+        "throttle": 0.6390137655062024
+      },
+      "divergence": {
+        "roll": 0.0969879466946395,
+        "pitch": 0.09492206991362195,
+        "yaw": 0.016797616263318105
+      },
+      "ekf": {
+        "ratio": 0.01,
+        "worst": "SV",
+        "faults": 0,
+        "state": "OK",
+        "source": "XKF4[0]"
+      },
+      "position_divergence": {
+        "value": 0.007168404639687396,
+        "vertical": 0.06,
+        "state": "OK",
+        "source": "XKF3[0]"
+      },
+      "verification_state": "NOT_LOADED",
+      "notes": "climb-out, EKF nominal",
+      "status": "REVIEWED"
+    },
+    {
+      "index": 2,
+      "captured_at": "2026-06-04T07:37:15",
+      "cursor_time": 150.0,
+      "log_path": "/home/manikanth/Downloads/00000012(1).BIN",
+      "event": {
+        "time": 148.079078,
+        "severity": "INFO",
+        "type": "MODE",
+        "message": "Mode: LAND"
+      },
+      "flight_index": 0,
+      "flight_total": 1,
+      "phase": "LAND",
+      "mode": "LAND",
+      "position": {
+        "lat": -35.3632619,
+        "lng": 149.1652373
+      },
+      "altitude_agl": 9.225277819095398,
+      "altitude_source": "POS.RelHomeAlt",
+      "vertical_speed": -0.531331201036628,
+      "vertical_speed_source": "BARO[0].CRt",
+      "ground_speed": 0.006945713492482688,
+      "gps_fix": "RTK_FIXED",
+      "gps_sats": 10,
+      "pilot": {
+        "roll": 0.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "throttle": 0.0
+      },
+      "demand": {
+        "roll": 0.19323884369093644,
+        "pitch": 0.2174957214164087,
+        "yaw": 352.4073791503906,
+        "throttle": null
+      },
+      "response": {
+        "roll": 0.18171097053935653,
+        "pitch": 0.21338739464325582,
+        "yaw": 352.4049553576924,
+        "throttle": 0.5884914265706284
+      },
+      "divergence": {
+        "roll": 0.01152787315157866,
+        "pitch": 0.004108326773149429,
+        "yaw": 0.0024237926982095814
+      },
+      "ekf": {
+        "ratio": 0.01,
+        "worst": "SM",
+        "faults": 0,
+        "state": "OK",
+        "source": "XKF4[0]"
+      },
+      "position_divergence": {
+        "value": 0.011218943502232744,
+        "vertical": -0.034914265706282886,
+        "state": "OK",
+        "source": "XKF3[0]"
+      },
+      "verification_state": "NOT_LOADED",
+      "notes": "descent / LAND mode entry",
+      "status": "FLAGGED"
+    },
+    {
+      "index": 3,
+      "captured_at": "2026-06-04T07:37:15",
+      "cursor_time": 175.0,
+      "log_path": "/home/manikanth/Downloads/00000012(1).BIN",
+      "event": {
+        "time": 170.571744,
+        "severity": "INFO",
+        "type": "EV",
+        "message": "EV_56"
+      },
+      "flight_index": null,
+      "flight_total": 1,
+      "phase": "POST",
+      "mode": "LAND",
+      "position": {
+        "lat": -35.3632621,
+        "lng": 149.1652373
+      },
+      "altitude_agl": 0.014313922585536014,
+      "altitude_source": "POS.RelHomeAlt",
+      "vertical_speed": 0.0,
+      "vertical_speed_source": "BARO[0].CRt",
+      "ground_speed": 0.0,
+      "gps_fix": "RTK_FIXED",
+      "gps_sats": 10,
+      "pilot": {
+        "roll": 0.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "throttle": 0.0
+      },
+      "demand": {
+        "roll": 0.00021842433488927782,
+        "pitch": -0.0003247232964673733,
+        "yaw": 351.7909985261805,
+        "throttle": null
+      },
+      "response": {
+        "roll": 0.1868213005426551,
+        "pitch": 0.17833818601710455,
+        "yaw": 351.7909985261805,
+        "throttle": 0.0
+      },
+      "divergence": {
+        "roll": 0.18660287620775762,
+        "pitch": 0.17866290931357298,
+        "yaw": 0.0
+      },
+      "ekf": {
+        "ratio": 0.0,
+        "worst": "SV",
+        "faults": 0,
+        "state": "OK",
+        "source": "XKF4[0]"
+      },
+      "position_divergence": {
+        "value": 0.0,
+        "vertical": 0.0,
+        "state": "OK",
+        "source": "XKF3[0]"
+      },
+      "verification_state": "NOT_LOADED",
+      "notes": "post-flight, disarmed",
+      "status": "OPEN"
+    }
+  ]
+}
