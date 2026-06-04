@@ -53,6 +53,7 @@ class AppState(QObject):
     event_jumped         = pyqtSignal(float)    # absolute time (event click)
     module_requested     = pyqtSignal(int)      # nav rail / module switch
     snapshots_changed    = pyqtSignal()         # investigation snapshot store changed
+    plot_request         = pyqtSignal(str)      # request plotter load a preset/category
     parse_progress       = pyqtSignal(int)      # 0-100
     parse_started        = pyqtSignal()
     parse_error          = pyqtSignal(str)
@@ -248,6 +249,11 @@ class AppState(QObject):
 
     def request_module(self, index: int):
         self.module_requested.emit(index)
+
+    def request_plot(self, preset_or_category: str):
+        """Ask the Signal Plotter to load the signals for a preset / finding category
+        (event-to-signal linking)."""
+        self.plot_request.emit(str(preset_or_category))
 
     # ── Lazy shared services (built once per log, on first access) ───────────
 

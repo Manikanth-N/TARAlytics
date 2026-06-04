@@ -42,6 +42,27 @@ DEFAULT_SIGNALS = [
 _INST_RE = re.compile(r'^(.+)\[(\d+)\]$')
 _USER_ROLE_COL = Qt.ItemDataRole.UserRole + 1  # stores field/column name
 
+# One-click investigation presets: name -> [(base_msg, field), ...].
+PLOT_PRESETS = {
+    'Roll':    [('ATT', 'Roll'), ('ATT', 'DesRoll')],
+    'Pitch':   [('ATT', 'Pitch'), ('ATT', 'DesPitch')],
+    'Yaw':     [('ATT', 'Yaw'), ('ATT', 'DesYaw')],
+    'Attitude': [('ATT', 'Roll'), ('ATT', 'DesRoll'), ('ATT', 'Pitch'), ('ATT', 'DesPitch')],
+    'GPS':     [('GPS', 'Status'), ('GPS', 'NSats'), ('GPS', 'HDop')],
+    'EKF':     [('XKF4', 'SV'), ('XKF4', 'SP'), ('XKF4', 'SH'), ('XKF4', 'SM')],
+    'Vibe':    [('VIBE', 'VibeX'), ('VIBE', 'VibeY'), ('VIBE', 'VibeZ')],
+    'Motors':  [('RCOU', 'C1'), ('RCOU', 'C2'), ('RCOU', 'C3'), ('RCOU', 'C4')],
+    'Power':   [('BAT', 'Volt'), ('BAT', 'Curr')],
+}
+# Toolbar order
+_PRESET_ORDER = ['Attitude', 'Roll', 'Pitch', 'Yaw', 'EKF', 'GPS', 'Vibe', 'Motors', 'Power']
+# Finding/anomaly category -> preset, for event-to-signal linking.
+EVENT_PRESET = {
+    'OSCILLATION': 'Attitude', 'TRACKING': 'Attitude', 'YAW': 'Yaw',
+    'EKF': 'EKF', 'GPS': 'GPS', 'VIBE': 'Vibe', 'POWER': 'Power',
+    'SATURATION': 'Motors', 'LANDING': 'Attitude',
+}
+
 # Unit heuristics for Y-axis label
 _UNIT_MAP = [
     (('alt', 'Alt'),                          'm'),
@@ -309,12 +330,56 @@ class PlotterTab(QWidget):
         self._plot.sigRangeChanged.connect(self._on_x_range_changed)
         self._plot.sigRangeChanged.connect(lambda _vb, _ranges: self._label_timer.start())
 
+        # Left panel: search + investigation presets + signal tree
+        left_panel = QWidget()
+        lp = QVBoxLayout(left_panel)
+        lp.setContentsMargins(0, 0, 0, 0); lp.setSpacing(3)
+
+        from PyQt6.QtWidgets import QLineEdit, QGridLayout, QCheckBox
+        self._search = QLineEdit()
+        self._search.setPlaceholderText('🔍 Search signals…')
+        self._search.setClearButtonEnabled(True)
+        self._search.setStyleSheet(
+            'QLineEdit { background: #13131f; color: #e0e0e0; border: 1px solid #333; '
+            'border-radius: 3px; padding: 3px 6px; font-size: 11px; }')
+        self._search.textChanged.connect(self._filter_tree)
+        lp.addWidget(self._search)
+
+        presets_w = QWidget()
+        pgl = QGridLayout(presets_w); pgl.setContentsMargins(0, 0, 0, 0); pgl.setSpacing(2)
+        for i, name in enumerate(_PRESET_ORDER):
+            b = QPushButton(name); b.setFixedHeight(20)
+            b.setToolTip(f'Plot the {name} signal set')
+            b.setStyleSheet(
+                'QPushButton { background: #2a2a3e; color: #c8d8e8; border: 1px solid #3a3a5e; '
+                'border-radius: 3px; padding: 1px 4px; font-size: 10px; } '
+                'QPushButton:hover { background: #3a3a5e; color: #22AADF; }')
+            b.clicked.connect(lambda _=False, n=name: self.apply_preset(n))
+            pgl.addWidget(b, i // 3, i % 3)
+        lp.addWidget(presets_w)
+
+        self._link_cb = QCheckBox('🔗 Auto-plot selected events')
+        self._link_cb.setStyleSheet('color: #8888aa; font-size: 10px;')
+        lp.addWidget(self._link_cb)
+
+        self._tree.setFixedWidth(16777215)   # release the fixed width; panel governs
+        self._tree.setMinimumWidth(190)
+        lp.addWidget(self._tree, 1)
+        left_panel.setMaximumWidth(240)
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self._tree)
+        splitter.addWidget(left_panel)
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         outer.addWidget(splitter)
+
+        # Event-to-signal linking: Debrief findings / event jumps can request a
+        # preset; auto-plot raw event jumps when the checkbox is on.
+        app = getattr(self._mw, '_app_state', None)
+        if app is not None:
+            app.plot_request.connect(self._on_plot_request)
+            app.event_jumped.connect(self._on_event_jumped)
 
     # ── Data loading ──────────────────────────────────────────────────────────
 
@@ -566,6 +631,91 @@ class PlotterTab(QWidget):
                     col = field.data(0, _USER_ROLE_COL)
                     if (df_key, col) in default_set:
                         field.setCheckState(0, Qt.CheckState.Checked)
+
+    # ── search / presets / event linking ──────────────────────────────────────
+
+    def _filter_tree(self, text: str):
+        q = text.strip().lower()
+        root = self._tree.invisibleRootItem()
+        for gi in range(root.childCount()):
+            grp = root.child(gi); grp_vis = False
+            for mi in range(grp.childCount()):
+                msg = grp.child(mi); mlbl = msg.text(0).lower(); msg_vis = False
+                for fi in range(msg.childCount()):
+                    field = msg.child(fi)
+                    label = f'{mlbl}.{field.text(0).lower()}'
+                    vis = (q == '' or q in label)
+                    field.setHidden(not vis); msg_vis = msg_vis or vis
+                msg.setHidden(not msg_vis); grp_vis = grp_vis or msg_vis
+                if msg_vis and q:
+                    msg.setExpanded(True)
+            grp.setHidden(not grp_vis)
+
+    def _resolve_key(self, base: str):
+        """Actual df_key for a base message name (exact, then first instance)."""
+        if base in self._data:
+            return base
+        insts = sorted(k for k in self._data
+                       if _INST_RE.match(k) and _INST_RE.match(k).group(1) == base)
+        return insts[0] if insts else None
+
+    def _check_pairs(self, pairs):
+        """Tick the tree field items matching (df_key, col) — fires _add_signal."""
+        target = {(k, c) for k, c in pairs if k}
+        if not target:
+            return
+        root = self._tree.invisibleRootItem()
+        for gi in range(root.childCount()):
+            grp = root.child(gi)
+            for mi in range(grp.childCount()):
+                msg = grp.child(mi)
+                for fi in range(msg.childCount()):
+                    field = msg.child(fi)
+                    k = field.data(0, Qt.ItemDataRole.UserRole)
+                    c = field.data(0, _USER_ROLE_COL)
+                    if (k, c) in target and field.checkState(0) != Qt.CheckState.Checked:
+                        field.setCheckState(0, Qt.CheckState.Checked)
+
+    def apply_preset(self, name: str, clear: bool = True):
+        """Load a named investigation preset (clears the plot first by default)."""
+        pairs = PLOT_PRESETS.get(name)
+        if not pairs or not self._data:
+            return
+        resolved = []
+        for base, col in pairs:
+            key = self._resolve_key(base)
+            df = self._data.get(key) if key else None
+            if df is not None and col in df.columns:
+                resolved.append((key, col))
+        if clear:
+            self._clear_all()
+        self._check_pairs(resolved)
+
+    def _on_plot_request(self, category_or_preset: str):
+        """A Debrief finding / event requested signals — map category → preset."""
+        name = EVENT_PRESET.get(category_or_preset, category_or_preset)
+        if name in PLOT_PRESETS:
+            self.apply_preset(name, clear=True)
+
+    def _on_event_jumped(self, t: float):
+        if not getattr(self, '_link_cb', None) or not self._link_cb.isChecked():
+            return
+        if not self._data:
+            return
+        from core.event_extractor import EventExtractor
+        events = EventExtractor.collect(self._data)
+        if not events:
+            return
+        times = np.array([e[0] for e in events])
+        ev = events[int(np.argmin(np.abs(times - t)))]
+        msg = ev[3].lower()
+        # crude raw-event → preset heuristic
+        if 'ekf' in msg:
+            self.apply_preset('EKF')
+        elif 'gps' in msg or 'glitch' in msg:
+            self.apply_preset('GPS')
+        else:
+            self.apply_preset('Attitude')
 
     def _on_item_changed(self, item: QTreeWidgetItem, _col):
         df_key = item.data(0, Qt.ItemDataRole.UserRole)

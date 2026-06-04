@@ -19,9 +19,15 @@ def _data(n=400, dur=100.0):
         'PARM': pd.DataFrame({'Name': ['RCMAP_ROLL'], 'Value': [1.0]}),
         'POS': pd.DataFrame({'TimeS': t, 'RelHomeAlt': np.clip(t, 0, 40)}),
         'GPS[0]': pd.DataFrame({'TimeS': t, 'Status': np.full(n, 6), 'NSats': np.full(n, 12),
-                                'Spd': np.full(n, 2.0), 'Alt': np.clip(t, 0, 40),
+                                'HDop': np.full(n, 0.8), 'Spd': np.full(n, 2.0),
+                                'Alt': np.clip(t, 0, 40),
                                 'Lat': np.linspace(-35.36, -35.355, n),
                                 'Lng': np.linspace(149.16, 149.165, n)}),
+        'XKF4[0]': pd.DataFrame({'TimeS': t, 'SV': np.full(n, 0.1), 'SP': np.full(n, 0.1),
+                                 'SH': np.full(n, 0.1), 'SM': np.full(n, 0.1), 'FS': np.zeros(n)}),
+        'VIBE[0]': pd.DataFrame({'TimeS': t, 'VibeX': np.full(n, 5.0), 'VibeY': np.full(n, 5.0),
+                                 'VibeZ': np.full(n, 8.0), 'Clip': np.zeros(n)}),
+        'BAT': pd.DataFrame({'TimeS': t, 'Volt': np.linspace(12.6, 11.4, n), 'Curr': np.full(n, 28.0)}),
         'ARM': pd.DataFrame({'TimeS': [5.0, 95.0], 'ArmState': [1, 0]}),
         'MODE': pd.DataFrame({'TimeS': [5.0], 'Mode': [5]}),
     }
@@ -88,3 +94,61 @@ class TestHorizonHistory:
         h.resize(360, 420)
         h.repaint()              # must not raise
         assert h._has
+
+
+class TestPlotter:
+    @pytest.fixture
+    def plot(self, qtbot):
+        from ui.main_window import MainWindow
+        w = MainWindow(); qtbot.addWidget(w)
+        w.data_ready.emit(_data())
+        return w, w._tab_plotter
+
+    def test_preset_loads_signals(self, plot):
+        w, pl = plot
+        pl._clear_all(); pl.apply_preset('Attitude')
+        assert set(pl._active_sigs) == {'ATT.Roll', 'ATT.DesRoll', 'ATT.Pitch', 'ATT.DesPitch'}
+
+    def test_preset_resolves_instance(self, plot):
+        w, pl = plot
+        pl._clear_all(); pl.apply_preset('EKF')
+        assert set(pl._active_sigs) == {'XKF4[0].SV', 'XKF4[0].SP', 'XKF4[0].SH', 'XKF4[0].SM'}
+
+    def test_preset_clears_previous(self, plot):
+        w, pl = plot
+        pl.apply_preset('Attitude'); pl.apply_preset('Power')
+        assert set(pl._active_sigs) == {'BAT.Volt', 'BAT.Curr'}
+
+    def test_search_filters_tree(self, plot):
+        w, pl = plot
+        pl._filter_tree('vibex')
+        root = pl._tree.invisibleRootItem(); visible = []
+        for gi in range(root.childCount()):
+            g = root.child(gi)
+            for mi in range(g.childCount()):
+                m = g.child(mi)
+                for fi in range(m.childCount()):
+                    f = m.child(fi)
+                    if not f.isHidden():
+                        visible.append(f.text(0).lower())
+        assert visible and all('vibex' in v for v in visible)
+
+    def test_event_to_signal_linking(self, plot):
+        w, pl = plot
+        pl._clear_all()
+        w._app_state.request_plot('OSCILLATION')        # finding category → preset
+        assert set(pl._active_sigs) == {'ATT.Roll', 'ATT.DesRoll', 'ATT.Pitch', 'ATT.DesPitch'}
+        pl._clear_all()
+        w._app_state.request_plot('VIBE')
+        assert set(pl._active_sigs) == {'VIBE[0].VibeX', 'VIBE[0].VibeY', 'VIBE[0].VibeZ'}
+
+    def test_finding_click_plots_and_navigates(self, plot):
+        w, pl = plot
+        # build a finding row and click it
+        from core.flight_analytics import Finding
+        d = w._mod_debrief
+        navs = []
+        d.nav_requested.connect(lambda i: navs.append(i))
+        d._on_finding(Finding('WARNING', 'GPS', 'GPS anomaly', 'x', t_start=40.0))
+        assert set(pl._active_sigs) == {'GPS[0].Status', 'GPS[0].NSats', 'GPS[0].HDop'}
+        assert navs == [4]                               # navigated to Signals

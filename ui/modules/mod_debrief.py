@@ -82,14 +82,14 @@ class ScoreCard(QWidget):
 
 
 class FindingRow(QWidget):
-    """One automated finding; click jumps the shared cursor to its moment."""
-    clicked = pyqtSignal(float)
+    """One automated finding; click jumps the shared cursor to its moment and plots
+    the relevant signals (event-to-signal linking)."""
+    clicked = pyqtSignal()
 
     def __init__(self, finding, parent=None):
         super().__init__(parent)
         self._t = finding.t_start
-        self.setCursor(Qt.CursorShape.PointingHandCursor if self._t is not None
-                       else Qt.CursorShape.ArrowCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         hl = QHBoxLayout(self); hl.setContentsMargins(4, 3, 4, 3); hl.setSpacing(T.spacing.px8)
         sev = QLabel(finding.severity)
         sev.setFixedWidth(64)
@@ -108,8 +108,7 @@ class FindingRow(QWidget):
         hl.addWidget(sev); hl.addWidget(cat); hl.addWidget(txt, 1); hl.addWidget(when)
 
     def mousePressEvent(self, e):
-        if self._t is not None:
-            self.clicked.emit(float(self._t))
+        self.clicked.emit()
 
 
 class DebriefModule(QWidget):
@@ -287,8 +286,16 @@ class DebriefModule(QWidget):
             return
         for f in findings[:20]:
             row = FindingRow(f)
-            row.clicked.connect(self._app.jump_to_event)
+            row.clicked.connect(lambda fn=f: self._on_finding(fn))
             self._findings_layout.addWidget(row)
+
+    def _on_finding(self, finding):
+        """Investigate a finding: jump the cursor to it, plot its signals, and open
+        the Signal Plotter."""
+        if finding.t_start is not None:
+            self._app.jump_to_event(float(finding.t_start))
+        self._app.request_plot(finding.category)
+        self.nav_requested.emit(_NAV_SIGNALS)
 
     def _fill_profile(self, data: dict):
         self._m_duration.set_value(FlightMetrics.duration(data)[1])
