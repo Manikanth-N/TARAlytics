@@ -1,202 +1,223 @@
-# P1 Workflow Layer — Mission Timeline + Unified Event Investigation
-## Plan (no code yet). Focus: cut investigation time for real flight-test engineers.
+# P1 Workflow Layer (REVISED) — Mission Investigation Workstation
+## Timeline · Unified Events · Shared Cursor · Situational Awareness Panel
 
-Builds on the trustworthy parser (Sprint-1.2) and the Sprint-1 AppState hub.
-Informed by the UAVLogViewer audit: one **shared cursor**, **click-to-jump**, and
-**mode/phase context on the time axis** are the highest-leverage patterns.
+Supersedes the original two-module P1. Approved scope expansion: operational value
+comes from **synchronized investigation**, not isolated widgets. Sprint-1.2 restored
+the enabling data (`ATT` incl. `DesRoll/DesPitch/DesYaw`, `RCIN`, `RCOU`, `XKF`).
 
----
-
-## A. Architecture Proposal
-
-### Principle: one cursor, one event source, many views
-- **Single shared cursor** — `AppState.cursor_time_changed(t_abs)` (exists). Timeline,
-  Plotter, Replay, Events all emit to it and subscribe to it. No view owns time.
-- **Single authoritative event source** — `core/event_extractor.py` (exists). All
-  event UIs read it; the 3 legacy fragments are removed.
-- **Single phase/segment model** — new `core/timeline_model.py` (pure, no Qt):
-  derives flight phases and mode segments from MODE/ARM/ALT.
-
-### New core (pure, testable, no Qt)
-```
-core/timeline_model.py
-    class TimelineModel:
-        phases(data)      -> [Phase(name, t_start, t_end)]      # PRE-ARM/TAKEOFF/
-                                                                # CRUISE/HOVER/RTL/LAND/POST
-        mode_segments(data) -> [ModeSeg(mode, t_start, t_end)]  # from MODE changes
-        altitude_profile(data) -> (times[], agl[])              # decimated for display
-        # phase detection: ARM window + altitude derivative + MODE
-```
-
-### New UI modules
-```
-ui/modules/mod_timeline.py     TimelineModule   (nav item ②, primary surface)
-ui/modules/mod_events.py       EventsModule     (nav item ④, replaces fragments)
-ui/widgets/timeline_strip.py   TimelineStrip    (also embeddable as persistent bottom strip)
-ui/widgets/event_table_unified.py
-```
-
-### AppState additions (additive only)
-```
-signals_preload_requested = pyqtSignal(list)   # health/event -> plotter preset
-time_window_changed       = pyqtSignal(float, float)  # zoom range sync (optional)
-event_note_changed        = pyqtSignal(int, str)      # persisted note
-# existing reused: cursor_time_changed, event_jumped, module_requested, data_changed
-```
-
-### Persistence (notes / investigation status)
-```
-data/investigations/<device_id>_<log_ctr>.json
-    { events: { <event_key>: { note, status } } }   # status: open|reviewed|flagged
-```
-Keyed by device_id + log counter (stable per flight), not file path.
-
-### What gets deleted (de-fragmentation)
-- `ui/widgets/event_timeline.py` (legacy bar) → superseded by TimelineStrip.
-- `EventTable` + `EventTimeline` usage inside `tab_verification.py` → removed.
-- Debrief "Notable Events" stays as a *read-only top-5 summary* that deep-links into
-  the Events module (no separate logic — calls `EventExtractor`).
+**Goal:** not a better log viewer — a **mission investigation workstation** for
+post-flight review, crash investigation, pilot-behavior analysis, controller-behavior
+analysis, and certification evidence review.
 
 ---
 
-## B. Data Flow Diagram
+## 0. The Core Idea (one cursor moves every instrument)
 
-```
-                         ┌──────────────── AppState (hub) ────────────────┐
- parse ─ data_changed ──▶│ data, meta, verification                       │
-                         │                                                │
-   TimelineModel(data) ──┼─▶ phases / mode_segments / altitude_profile     │
-   EventExtractor(data) ─┼─▶ events[]                                      │
-                         └───────┬───────────────┬───────────────┬────────┘
-                                 │               │               │
-                 cursor_time_changed (shared, bidirectional)
-                                 │               │               │
-        ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-        │   TIMELINE   │  │   PLOTTER    │  │    REPLAY    │  │    EVENTS    │
-        │ alt profile  │◀▶│  crosshair   │◀▶│  playhead    │◀▶│  selection   │
-        │ mode/phase   │  │  signals     │  │  vehicle pos │  │  filters     │
-        │ event pins   │  │ values@t     │  │              │  │  notes/status│
-        └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-               │ event_jumped(t)         signals_preload_requested    │
-               └─────────────┴──────────────┴──────────────┴─────────┘
-                         (any view → jump everything to t / load signals)
-
- VERIFY sync: cursor over a chunk range → Verification can highlight which
- hash-chunk covers that time (read-only; uses signature_verifier chunk offsets).
-```
-
-**Bidirectional sync contract:** every view, on user interaction, calls
-`AppState.set_cursor_time(t_abs)`; every view subscribes to `cursor_time_changed`
-and moves its own cursor **without** re-emitting (guard flag), preventing loops.
-This is the eventHub pattern from UAVLogViewer, expressed through AppState.
+Selecting an event, or scrubbing anywhere, emits **one** cursor time. Every surface
+reads its own value at that time and updates. The investigator reads
+*where + attitude + inputs + mode + signals + events* at a glance, then steps
+event-to-event. This is the < 2-minute crash workflow made literal.
 
 ---
 
-## C. UI Mockups (structure only)
+## A. Core Layer (pure, no Qt, fully testable)
 
-### C1. Mission Timeline (primary investigation surface)
 ```
-┌ TIMELINE ─ SN-01 · #002 · armed 0:43 ──────────────── [⤢ full] [◀ev][ev▶] ┐
-│ ALTITUDE (AGL, m)                                          values@ 152.30s │
-│ 10┤              ╭───────────────╮                         Alt   9.8 m      │
-│  5┤          ╭───╯               ╰──╮                      Mode  LOITER     │
-│  0┤──────────╯                      ╰──────────            VSpd -0.3 m/s    │
-│    ├─────────┬───────────┬───────────┬──────────┬────────────┬──────────┤  │
-│PHASE[PRE-ARM][ TAKEOFF ][      HOVER/MISSION     ][  LAND  ][POST]          │
-│MODE [STAB   ][ GUIDED                    ][ LOITER ][ LAND ][STAB]          │
-│EVENT  ▲arm    ▲ekf-yaw         ⚠hit-gnd          ▲disarm                    │
-│       126.99  135.49           168.48            170.57                     │
-│  ◀═══════════════════ playhead ▮ (drag to scrub) ═══════════════════▶       │
-└────────────────────────────────────────────────────────────────────────────┘
- click anywhere on alt/phase/mode/event → set cursor → Plotter+Replay+Events jump
- [◀ev][ev▶] step to prev/next event ; double-click phase → zoom Plotter to phase
+core/timeline_model.py        flight structure from MODE/ARM/ALT
+core/sample_service.py        value-at-time interpolation (the cursor's engine)
+core/rc_model.py              RC channel -> axis normalization (RCMAP/REV/MIN/MAX)
+core/event_extractor.py       (exists) single authoritative event source
 ```
 
-### C2. Unified Event Investigation (replaces 4 fragments)
+### A1. `TimelineModel`
 ```
-┌ EVENTS ─ 29 total · 1 flagged ─────────────────────────────────────────────┐
-│ Severity [✓CRIT ✓ERR ✓WARN ✓INFO]   Type [MSG EV ERR ARM MODE]              │
-│ Search [ ground____ ]   Status [All ▾]                     showing 6 / 29    │
-│ ────────────────────────────────────────────────────────────────────────── │
-│  ⚑ TIME      SEV   TYPE  MESSAGE                  PHASE   STATUS   ACTIONS    │
-│     126.993  INFO  ARM   Armed                    PRE-ARM open    [~][3D][⏱]  │
-│  ⚑  168.483  WARN  MSG   SIM Hit ground 0.50 m/s  LAND    flagged [~][3D][⏱]  │
-│     170.569  INFO  ARM   Disarmed (method=13)     LAND    open    [~][3D][⏱]  │
-│ ────────────────────────────────────────────────────────────────────────── │
-│  SELECTED  168.483s "Hit ground"   [~ plot][3D replay][⏱ timeline]           │
-│  Correlated ±2s: BARO.Alt→0.0 , RATE.ADes↓ , ESCX out↓ , Mode=LAND           │
-│  Note [ touchdown harder than spec; check landing detector ____ ] [save]     │
-│  Status ( )open  ( )reviewed  (•)flagged-for-DGCA                            │
-└────────────────────────────────────────────────────────────────────────────┘
- [~]=jump Plotter+preload correlated signals  [3D]=Replay seek  [⏱]=Timeline cursor
+phases(data)           -> [Phase(name, t0, t1)]   PRE-ARM/TAKEOFF/CLIMB/
+                                                   HOVER/CRUISE/RTL/DESCENT/LAND/POST
+mode_segments(data)    -> [ModeSeg(mode, t0, t1)] from MODE changes
+altitude_profile(data) -> (t[], agl[])            decimated for display (AGL hierarchy)
+event_markers(data)    -> EventExtractor.collect(data)   (re-used, not duplicated)
 ```
+Phase detection: ARM window + altitude derivative (climb/descend/hover) + MODE.
 
-### C3. Persistent Timeline strip (optional, bottom of every analysis screen)
-A 64px-tall always-visible reduction of C1 (alt sparkline + phase band + event
-pins + playhead) so the engineer never loses temporal context while in Plotter or
-Replay. Driven by the same cursor.
+### A2. `SampleService` — the heart of the shared cursor
+```
+class SampleService:
+    def __init__(self, data):           # precompute per (msg) sorted time arrays + column arrays
+    def value_at(self, msg, col, t)     -> float | None    # binary search + linear interp; NaN-safe
+    def latest_at(self, msg, col, t)    -> value | None     # step (for MODE/discrete)
+    def batch(self, t, specs)           -> dict             # many (msg,col) in one call for the panel
+```
+- One instance built on `data_changed`, held by `AppState`. Every instrument calls
+  `value_at`/`batch` — no per-widget interpolation code (kills the duplication risk).
+- O(log n) per lookup; column arrays cached as numpy. Returns `None` outside range
+  (panel shows `—`, never a fabricated value).
+
+### A3. `RCModel` — pilot-input semantics
+```
+axis_channel(params)   -> {roll: C1, pitch: C2, throttle: C3, yaw: C4}  via RCMAP_*
+normalize(pwm, ch, params) -> -1..+1 (roll/pitch/yaw) or 0..1 (throttle)
+                              using RC{n}_MIN/TRIM/MAX and RC{n}_REV
+```
+Defaults RCMAP_ROLL/PITCH/THROTTLE/YAW = 1/2/3/4 when params absent. This makes
+`RCIN.Roll` meaningful (= normalized C1), matching the differentiator examples.
 
 ---
 
-## D. Migration Plan (from fragmented event displays)
+## B. Shared Cursor System (AppState contract)
 
-| Current (fragmented) | Action | Target |
-|----------------------|--------|--------|
-| Debrief "Notable Events" list | Keep as read-only top-5; clicking opens Events module at that event | calls `EventExtractor` |
-| Verification tab `EventTable` | **Remove** from Verification; logic already in `EventExtractor` | → Events module |
-| Verification tab `EventTimeline` bar | **Remove**; superseded | → Timeline strip |
-| Plotter event-overlay checkboxes | Keep overlay lines (driven by shared events); drop the duplicate category panel | reuse `EventExtractor` |
-| `ui/widgets/event_table.py` | Refactor into `event_table_unified.py` (filters/search/notes) | Events module |
-| `ui/widgets/event_timeline.py` | Delete after TimelineStrip lands | — |
+Reuses existing signals; adds the service + a re-entrancy guard.
+```
+AppState:
+  # existing, reused:
+  cursor_time_changed(float)      # the one cursor (absolute time)
+  event_jumped(float)             # event selection -> also sets cursor
+  signals_preload_requested(list) # event/health -> plotter preset
+  data_changed(dict)
+  # added:
+  @property sample_service -> SampleService     # rebuilt on data_changed
+  @property timeline_model  -> TimelineModel
+  # guard: set_cursor_time() ignores echo within an in-flight broadcast
+```
+**Sync contract (prevents loops):** on user interaction a view calls
+`AppState.set_cursor_time(t)`. AppState sets a `_broadcasting` flag, emits
+`cursor_time_changed`, clears it. Every view's handler moves its cursor but, while
+`_broadcasting`, does **not** re-emit. Single source of truth, no feedback loop.
 
-**Sequence (low-risk, each step shippable):**
-1. `core/timeline_model.py` + tests (pure, no UI risk).
-2. `TimelineStrip` widget + `TimelineModule`; wire shared cursor to Plotter/Replay.
-3. `EventsModule` (filters/search/jump); switch Debrief Notable Events to deep-link.
-4. Remove EventTable/EventTimeline from Verification; delete legacy widget.
-5. Add notes/status persistence.
-Tests updated alongside each step; Verification-tab tests adjusted in step 4's commit.
-
-**Compatibility:** nav rail grows DEBRIEF · **TIMELINE** · SIGNALS · **EVENTS** ·
-REPLAY · VERIFY · MAP (MAP may fold under Replay later). Hidden-tab-bar pattern
-unchanged; existing references preserved.
-
----
-
-## E. Workflow Validation (time-to-answer)
-
-### Post-flight review < 30 s
-- Land on **Debrief** (already): verdict + real metrics + VERIFIED + top events.
-- Glance **Timeline**: altitude profile + phases show the whole flight shape at once.
-- **Pass** if Debrief verdict + Timeline shape are readable without interaction. ✓ (P1 makes Timeline the at-a-glance shape; Debrief already gives the verdict.)
-
-### Crash investigation < 2 min
-1. Timeline: see where altitude/▼ anomaly + which phase/mode. (~10 s)
-2. Click the anomaly/event → Plotter jumps + preloads correlated signals; Replay
-   seeks to that position; Events selects it. (~5 s)
-3. Read values-at-cursor + correlated signals → cause hypothesis. (~30 s)
-4. Step prev/next event to reconstruct the sequence. (~30 s)
-- **Target met**: no manual screen-hopping or signal hunting; one cursor drives all.
-
-### Event root-cause analysis
-- Events module: filter to ERR/WARN, select event → correlated ±2s signals +
-  phase/mode context + jump to plot with the proving signals preloaded → note +
-  flag. One surface, evidence attached.
-
-### Flight-mode transition analysis
-- Timeline mode bands make transitions explicit; click a transition boundary →
-  Plotter zooms to it; values-at-cursor before/after show the effect (e.g. attitude
-  response on GUIDED→LOITER). Mode segments come from `TimelineModel.mode_segments`.
+Subscribers (all): Timeline, Plotter, Replay, Map, Situational Awareness Panel,
+Events (highlights current), Verify (highlights covering chunk — read-only).
 
 ---
 
-## Success Metrics (acceptance for P1)
-- One cursor verifiably syncs Timeline ↔ Plotter ↔ Replay ↔ Events (no loops).
-- Clicking any event jumps all views to its time in < 1 interaction.
+## C. UI Layer
+
+### C1. Mission Timeline (nav ②, primary surface)
+Altitude profile (spine) + mode bands + phase bands + event pins + scrubber.
+Click anywhere → `set_cursor_time`. `[◀ev][ev▶]` step events; double-click phase →
+Plotter zooms to it. (Mockup unchanged from prior plan §C1.) Embeddable as a 64px
+persistent bottom strip so temporal context is never lost.
+
+### C2. Unified Events (nav ④, replaces 4 fragments)
+Single source (`EventExtractor`). Severity + type filters, search, per-event Notes +
+Status (open/reviewed/flagged), jump actions `[~plot][3D][⏱][map]`. Correlated ±2s
+readout. (Mockup §C2 prior plan.) Persisted to
+`data/investigations/<device_id>_<log_ctr>.json`.
+
+### C3. Situational Awareness Panel — the instrument cluster
+Embeddable in Timeline (bottom) and Replay (HUD). Every field via `SampleService`
+at the cursor. **No new parsing — all fields exist post Sprint-1.2.**
+
+```
+┌ SITUATIONAL AWARENESS @ T = 152.30 s ─────────────────────────────────────────┐
+│  ┌── ATTITUDE ──┐   HEADING       ┌ PILOT vs CONTROLLER vs AIRCRAFT ┐ POSITION │
+│  │     ___      │    ◄ 352° ►      │ ROLL   pilot ▏  des ▎  act ▍   │ -35.3631 │
+│  │    /   \  ●  │   (compass)      │ PITCH  pilot ▏  des ▎  act ▍   │ 149.1652 │
+│  │   ‾‾‾‾‾‾     │                  │ YAW    pilot ▏  des ▎  act ▍   │ 9.8m AGL │
+│  │ roll  -2°    │   MODE  LOITER   │ THR    pilot ▏        out ▍    │ 0.4 m/s  │
+│  │ ghost = des  │   ARMED ✓        └────────────────────────────────┘ GPS RTK  │
+│  └──────────────┘   GPS 10 sat                                        10 sat   │
+│   actual ─── desired ┄┄┄                                                       │
+└────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Components (all QPainter, cursor-synced):
+- **AttitudeIndicator** — artificial horizon: actual `ATT.Roll/Pitch` solid +
+  **desired `ATT.DesRoll/DesPitch` ghost** overlay. Differentiator #1.
+- **HeadingTape** — `ATT.Yaw` (compass arc); `DesYaw` tick for commanded heading.
+- **PilotControllerStrip** — per axis three bars: **pilot** (`RCModel(RCIN.Cx)`),
+  **desired** (`ATT.DesRoll/Pitch` or `RATE.{R,P,Y}Des`), **actual** (`ATT.Roll/Pitch`
+  or `RATE.{R,P,Y}`); throttle shows pilot (`RCIN.C3`) vs **output** (`RCOU` mean).
+  Differentiator #2.
+- **Readouts** — Mode (`MODE` step), Armed, GPS fix/sats (`GPS.Status/NSats`),
+  Speed, Altitude (AGL), Position.
+
+### C4. Differentiators (explicit, what UAVLogViewer lacks)
+- **Actual vs Desired attitude** — `ATT.Roll` vs `ATT.DesRoll` (+Pitch/Yaw). Shows
+  whether the airframe tracked the command → **aircraft fault** vs healthy tracking.
+- **Pilot vs Controller** — `RCIN.Roll(C1)` vs `ATT.DesRoll` vs `ATT.Roll`:
+  - stick moved + des followed + act followed → **pilot action**, healthy.
+  - des moved with no stick → **controller/autopilot behavior**.
+  - des followed stick but act diverged → **aircraft/actuator fault**.
+  Answers fault / controller / pilot **without opening a single plot.**
+
+---
+
+## D. Map Strategy
+MAP stays a **separate module** (nav last). It **subscribes to the shared cursor**:
+vehicle marker + event pins move with `cursor_time_changed`; clicking the path emits
+`set_cursor_time`. Trajectory color-coding (mode/altitude/HDOP) deferred to P2.
+Offline-capable (existing pyqtgraph map); no Cesium/Ion dependency.
+
+**Nav order:** `DEBRIEF · TIMELINE · SIGNALS · EVENTS · REPLAY · VERIFY · MAP` (7).
+Hidden-tab-bar pattern unchanged; existing references preserved.
+
+---
+
+## E. Data Flow
+
+```
+ parse ─ data_changed ─▶ AppState builds: SampleService(data), TimelineModel(data),
+                                          events = EventExtractor(data)
+                         │
+        select event / scrub any surface ──▶ AppState.set_cursor_time(t)  [guarded]
+                         │  cursor_time_changed(t)   (single broadcast)
+   ┌─────────┬──────────┼───────────┬───────────┬───────────────┬──────────┐
+   ▼         ▼          ▼           ▼           ▼               ▼          ▼
+TIMELINE  PLOTTER    REPLAY        MAP      SITUATIONAL       EVENTS     VERIFY
+cursor→   crosshair  vehicle@t   marker@t   AWARENESS @t     highlight  chunk@t
+pin/phase +preload                pin       (horizon+sticks  current    (read-only)
+                     via SampleService.batch(t, panel_specs)  +readouts)
+```
+
+---
+
+## F. Migration (from fragmented event displays)
+Unchanged from prior plan §D: remove `EventTable`/`EventTimeline` from Verification;
+delete `ui/widgets/event_timeline.py`; Debrief "Notable Events" → read-only deep-link
+into Events; Plotter keeps event overlay lines (shared source), drops duplicate
+category panel.
+
+---
+
+## G. Implementation Order (approved)
+1. `core/timeline_model.py` + tests (pure).
+2. `core/sample_service.py` + `core/rc_model.py` + tests (pure) — **shared cursor infra**.
+3. **Mission Timeline** (`mod_timeline.py`, `timeline_strip.py`) — wire shared cursor
+   to Plotter + Replay.
+4. **Unified Events** (`mod_events.py`, `event_table_unified.py`) — filters/search/
+   notes/status/jump; switch Debrief Notable Events to deep-link; remove fragments.
+5. **Situational Awareness Panel** (`attitude_indicator.py`, `rc_stick.py`,
+   `situational_panel.py`) — actual-vs-desired + pilot-vs-controller.
+6. **Map synchronization** — MapTab subscribes to cursor; event pins.
+7. **Replay synchronization enhancements** — embed panel as HUD; bidirectional seek.
+
+Each step ships independently; tests updated alongside; Verification-tab tests
+adjusted in step 4's commit.
+
+---
+
+## H. Workflow Validation (time-to-answer)
+
+| Workflow | Path | Target |
+|----------|------|--------|
+| Post-flight review | Debrief verdict + Timeline shape | < 30 s ✓ |
+| Crash investigation | Timeline anomaly → event → all surfaces @T (horizon shows attitude, sticks show inputs, map shows where) → step events | < 2 min ✓ |
+| Pilot-behavior analysis | Situational panel: RCIN vs Des vs ATT per axis at T | no plots needed |
+| Controller-behavior analysis | Des moved w/o stick; ATT tracks Des? RATE Des/Out | one panel |
+| Certification evidence | Event → panel snapshot (attitude+inputs+mode) + note/flag → export | in-tool |
+
+---
+
+## I. Acceptance Criteria
+**Selecting any event updates — via one cursor movement — all of:**
+Timeline · Plotter · Replay · Map · Artificial Horizon · RC Visualization.
+
+- One `set_cursor_time` broadcast; no feedback loops (guard verified by test).
+- `SampleService.value_at` returns interpolated values matching a manual interp
+  within tolerance; `None` outside range (no fabricated values).
+- `RCModel` maps RCIN.C1→roll via RCMAP and normalizes with REV/MIN/MAX.
 - Zero remaining duplicate event displays (single source proven by test).
-- Timeline shows altitude + phases + modes + event pins for logs 02 and 11.
-- Crash-investigation walkthrough on log 11 completed in < 2 min (timed).
+- Crash walkthrough on log 11 timed < 2 min.
 
-## Out of scope for P1 (deferred)
-Trajectory color-coding, derived-signal expressions, EKF/Tx widgets, param-at-cursor
-(P2/P3 per the UAVLogViewer priority ranking). Aesthetics frozen.
+## J. Out of Scope for P1 (deferred → P2/P3)
+Trajectory color-coding, derived-signal expressions, EKF/param-at-cursor widgets,
+satellite-imagery layer. Aesthetics frozen.
