@@ -395,3 +395,15 @@ class MapTab(QWidget):
     def _fit_view(self):
         self._plot.enableAutoRange()
         self._plot.autoRange()
+
+    # ── deterministic export hooks (M5) ─────────────────────────────────────
+    def prepare_export(self):
+        """Build the backdrop synchronously (cache-only) and ensure decorations
+        are painted, so a subsequent grab is deterministic and complete."""
+        self._basemap.ensure_ready()
+        self._decorations.set_enabled(True)
+        self._decorations.repaint()
+
+    def export_pixmap(self):
+        """Grab the map plot (backdrop + overlays + track + decorations)."""
+        return self._plot.grab()
