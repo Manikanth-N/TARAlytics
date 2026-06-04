@@ -120,9 +120,33 @@ def _snapshot_md(s) -> str:
         '',
         '**Notes:** {}'.format(s.notes or '—'),
         '',
+        _provenance_table(s),
         '---',
     ]
     return '\n'.join(lines)
+
+
+def _provenance_table(s) -> str:
+    """Data provenance for every SampleService-derived value (P2.1): source field,
+    sample timestamp, interpolated flag, bracketing sample times."""
+    prov = getattr(s, 'provenance', None) or {}
+    if not prov:
+        return ''
+    rows = ['<details><summary>Data provenance ({} sampled values)</summary>'.format(len(prov)),
+            '', '| Field | Source | Value | Sample t (s) | Interp. | Bracket (s) |',
+            '|---|---|---|---|---|---|']
+    for key, p in prov.items():
+        val = '—' if p['value'] is None else '{:.4g}'.format(p['value'])
+        st = '—' if p['sample_timestamp'] is None else '{:.3f}'.format(p['sample_timestamp'])
+        br = '—'
+        if p.get('bracket'):
+            br = '{:.3f}–{:.3f}'.format(p['bracket'][0], p['bracket'][1])
+        rows.append('| {} | {}.{} | {} | {} | {} | {} |'.format(
+            key, p['msg'], p['col'], val, st, 'yes' if p['interpolated'] else 'no', br))
+    rows.append('')
+    rows.append('</details>')
+    rows.append('')
+    return '\n'.join(rows)
 
 
 def to_markdown(snapshots: list, meta: dict | None = None) -> str:

@@ -130,6 +130,31 @@ class TestSnapshot:
         s = self._build()
         json.dumps(s.to_dict(), default=str)  # must not raise
 
+    def test_provenance_for_sampleservice_values(self):
+        # t between samples → interpolation with bracket
+        s = self._build(50.3)
+        prov = s.provenance
+        # every required SampleService-derived value is recorded
+        for key in ('demand_roll', 'response_roll', 'altitude_agl', 'ground_speed',
+                    'gps_status', 'pilot_throttle', 'ekf_worst', 'posdiv_ipn'):
+            assert key in prov
+        r = prov['demand_roll']
+        assert r['msg'] == 'ATT' and r['col'] == 'DesRoll'
+        assert r['interpolated'] is True
+        assert r['bracket'] is not None and len(r['bracket']) == 2
+        assert r['sample_timestamp'] is None          # interpolated → no single sample
+        # discrete GPS status: held sample, not interpolated
+        g = prov['gps_status']
+        assert g['interpolated'] is False
+        assert g['sample_timestamp'] is not None and g['bracket'] is None
+
+    def test_provenance_exact_sample(self):
+        # t exactly on a sample (t=0.0 is the first ATT sample) → not interpolated
+        s = self._build(0.0)
+        r = s.provenance['response_roll']
+        assert r['interpolated'] is False
+        assert r['sample_timestamp'] is not None and r['bracket'] is None
+
 
 # ── evidence export ──────────────────────────────────────────────────────────
 

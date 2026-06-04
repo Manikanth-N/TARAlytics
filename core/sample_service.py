@@ -174,6 +174,19 @@ class SampleService:
         return Sample(v, msg, col, t, True,
                       bracket=(float(times[i - 1]), float(times[i])))
 
+    def sample_time(self, msg: str, t: float) -> Optional[float]:
+        """Timestamp of the sample at-or-before t (the value latest_at returns) —
+        for provenance of discrete/held channels. None if t precedes the first."""
+        if not self._ensure_times(msg):
+            return None
+        times = self._times[msg]
+        if len(times) == 0 or t < times[0]:
+            return None
+        i = int(np.searchsorted(times, t, side='right')) - 1
+        if i < 0:
+            return None
+        return float(times[i])
+
     def index_at(self, msg: str, t: float) -> Optional[int]:
         """Index (in time-sorted order) of the sample at or before t — for
         surfaces that need the row, not just a value (e.g. MSG text, replay)."""

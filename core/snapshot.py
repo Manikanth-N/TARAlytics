@@ -68,6 +68,10 @@ class InvestigationSnapshot:
     notes: str = ''
     status: str = 'OPEN'
 
+    # Provenance for every value that originates from SampleService (P2.1):
+    # {logical_field: {msg, col, value, sample_timestamp, interpolated, bracket}}.
+    provenance: dict = field(default_factory=dict)
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -77,17 +81,40 @@ class InvestigationSnapshot:
         return f'Cursor @ {self.cursor_time:.2f} s'
 
 
-def _agl_at(svc, data, t):
-    for msg, col in _AGL_SOURCES:
-        if msg in data:
-            v = svc.value_at(msg, col, t)
-            if v is not None:
-                return v, f'{msg}.{col}'
-    return None, None
-
-
 def _gps_msg(data):
     return next((k for k in _GPS_KEYS if k in data), None)
+
+
+def _agl_source(data):
+    return next(((m, c) for m, c in _AGL_SOURCES if m in data), (None, None))
+
+
+class _Provenance:
+    """Records the source of every SampleService-derived value: source message +
+    field, the resolved value, the sample timestamp, whether it was interpolated,
+    and (when interpolated) the bracketing sample times."""
+
+    def __init__(self, svc):
+        self._svc = svc
+        self.records: dict = {}
+
+    def cont(self, key: str, msg: str, col: str, t: float):
+        """Continuous read (sample_at) with full interpolation provenance."""
+        s = self._svc.sample_at(msg, col, t)
+        self.records[key] = {
+            'msg': msg, 'col': col, 'value': s.value,
+            'sample_timestamp': s.sample_t, 'interpolated': s.interpolated,
+            'bracket': list(s.bracket) if s.bracket else None}
+        return s.value
+
+    def disc(self, key: str, msg: str, col: str, t: float):
+        """Discrete / held read (latest_at); records the held sample's timestamp."""
+        v = self._svc.latest_at(msg, col, t)
+        self.records[key] = {
+            'msg': msg, 'col': col, 'value': v,
+            'sample_timestamp': self._svc.sample_time(msg, t),
+            'interpolated': False, 'bracket': None}
+        return v
 
 
 def _nearest_event(tm, t: float, window: float = 5.0) -> Optional[dict]:
@@ -124,36 +151,67 @@ def build_snapshot(*, index: int, svc, tm, rc, data: dict, t: float,
         ph = tm.phase_at(t); phase = ph.kind if ph else None
         mode = tm.mode_at(t)
 
-    # control triple
+    prov = _Provenance(svc)
+
+    # control triple (every SampleService read recorded with provenance)
     pilot = rc.pilot_input(svc, t).as_dict() if rc is not None else {}
     servo = rc.servo_output(svc, t).as_dict() if rc is not None else {}
-    demand = {a: svc.value_at('ATT', _DES_COL[a], t) for a in _AXES}
-    demand['throttle'] = svc.value_at('CTUN', 'ThO', t)
-    response = {a: svc.value_at('ATT', _ACT_COL[a], t) for a in _AXES}
+    if rc is not None:
+        for a in ('roll', 'pitch', 'yaw', 'throttle'):
+            ch = rc.channel_for(a)
+            prov.cont(f'pilot_{a}', 'RCIN', f'C{ch}', t)
+            prov.cont(f'servo_{a}', 'RCOU', f'C{ch}', t)
+    demand = {a: prov.cont(f'demand_{a}', 'ATT', _DES_COL[a], t) for a in _AXES}
+    demand['throttle'] = prov.cont('demand_throttle', 'CTUN', 'ThO', t)
+    response = {a: prov.cont(f'response_{a}', 'ATT', _ACT_COL[a], t) for a in _AXES}
     response['throttle'] = servo.get('throttle')
     divergence = {}
     for a in _AXES:
         d, r = demand[a], response[a]
         divergence[a] = abs(_angle_diff(r, d)) if (d is not None and r is not None) else None
 
-    # position / altitude / speed / gps
-    alt, alt_src = _agl_at(svc, data, t)
+    # altitude (with the chosen source field)
+    alt_msg, alt_col = _agl_source(data)
+    if alt_msg is not None:
+        alt = prov.cont('altitude_agl', alt_msg, alt_col, t)
+        alt_src = f'{alt_msg}.{alt_col}'
+    else:
+        alt, alt_src = None, None
+
+    # vertical speed (record provenance for the direct-field sources; the
+    # derivative fallback is computed, not a single sample)
     vs = diagnostics.vertical_speed_at(svc, data, t)
+    if vs['value'] is not None and '.' in vs['source'] and ' ' not in vs['source']:
+        vmsg, vcol = vs['source'].split('.', 1)
+        prov.cont('vertical_speed', vmsg, vcol, t)
+
+    # ground speed / gps
     gmsg = _gps_msg(data)
-    speed = svc.value_at(gmsg, 'Spd', t) if gmsg else None
+    speed = prov.cont('ground_speed', gmsg, 'Spd', t) if gmsg else None
     fix = sats = position = None
     if gmsg:
-        st = svc.latest_at(gmsg, 'Status', t)
-        ns = svc.latest_at(gmsg, 'NSats', t)
+        st = prov.disc('gps_status', gmsg, 'Status', t)
+        ns = prov.disc('gps_sats', gmsg, 'NSats', t)
         fix = GPS_FIX_NAMES.get(int(st), f'FIX_{int(st)}') if st is not None else None
         sats = int(ns) if ns is not None else None
-        lat = svc.latest_at(gmsg, 'Lat', t); lng = svc.latest_at(gmsg, 'Lng', t)
+        lat = prov.cont('position_lat', gmsg, 'Lat', t)
+        lng = prov.cont('position_lng', gmsg, 'Lng', t)
         if lat is not None and lng is not None:
             position = {'lat': lat, 'lng': lng}
     if position is None and 'POS' in data:
-        lat = svc.value_at('POS', 'Lat', t); lng = svc.value_at('POS', 'Lng', t)
+        lat = prov.cont('position_lat', 'POS', 'Lat', t)
+        lng = prov.cont('position_lng', 'POS', 'Lng', t)
         if lat is not None and lng is not None:
             position = {'lat': lat, 'lng': lng}
+
+    # diagnostics + their source-field provenance
+    ekf = diagnostics.ekf_status_at(svc, data, t)
+    if ekf.get('ratio') is not None and ekf.get('source') not in (None, 'none'):
+        prov.cont('ekf_worst', ekf['source'], ekf['worst'], t)
+    posdiv = diagnostics.position_divergence_at(svc, data, t)
+    if posdiv.get('value') is not None and posdiv.get('source') not in (None, 'none'):
+        prov.cont('posdiv_ipn', posdiv['source'], 'IPN', t)
+        prov.cont('posdiv_ipe', posdiv['source'], 'IPE', t)
 
     return InvestigationSnapshot(
         index=index, captured_at=datetime.now().isoformat(timespec='seconds'),
@@ -164,9 +222,9 @@ def build_snapshot(*, index: int, svc, tm, rc, data: dict, t: float,
         vertical_speed=vs['value'], vertical_speed_source=vs['source'],
         ground_speed=speed, gps_fix=fix, gps_sats=sats,
         pilot=pilot, demand=demand, response=response, divergence=divergence,
-        ekf=diagnostics.ekf_status_at(svc, data, t),
-        position_divergence=diagnostics.position_divergence_at(svc, data, t),
-        verification_state=verification_state, notes=notes, status=status)
+        ekf=ekf, position_divergence=posdiv,
+        verification_state=verification_state, notes=notes, status=status,
+        provenance=prov.records)
 
 
 class SnapshotStore:

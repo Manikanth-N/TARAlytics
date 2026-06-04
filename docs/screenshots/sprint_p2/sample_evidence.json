@@ -1,7 +1,7 @@
 {
   "application": "TARAlytics",
   "report_type": "investigation_evidence",
-  "generated_at": "2026-06-04T07:37:15",
+  "generated_at": "2026-06-04T07:48:02",
   "flight": {
     "log_path": "/home/manikanth/Downloads/00000012(1).BIN",
     "serial_number": "\u2014",
@@ -13,7 +13,7 @@
   "snapshots": [
     {
       "index": 1,
-      "captured_at": "2026-06-04T07:37:15",
+      "captured_at": "2026-06-04T07:48:02",
       "cursor_time": 135.0,
       "log_path": "/home/manikanth/Downloads/00000012(1).BIN",
       "event": {
@@ -28,7 +28,7 @@
       "mode": "GUIDED",
       "position": {
         "lat": -35.3632619,
-        "lng": 149.1652371
+        "lng": 149.16523709465588
       },
       "altitude_agl": 1.7655547220452144,
       "altitude_source": "POS.RelHomeAlt",
@@ -75,11 +75,279 @@
       },
       "verification_state": "NOT_LOADED",
       "notes": "climb-out, EKF nominal",
-      "status": "REVIEWED"
+      "status": "REVIEWED",
+      "provenance": {
+        "pilot_roll": {
+          "msg": "RCIN",
+          "col": "C1",
+          "value": 1500.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "servo_roll": {
+          "msg": "RCOU",
+          "col": "C1",
+          "value": 1639.0137655062024,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "pilot_pitch": {
+          "msg": "RCIN",
+          "col": "C2",
+          "value": 1500.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "servo_pitch": {
+          "msg": "RCOU",
+          "col": "C2",
+          "value": 1639.0137655062024,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "pilot_yaw": {
+          "msg": "RCIN",
+          "col": "C4",
+          "value": 1500.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "servo_yaw": {
+          "msg": "RCOU",
+          "col": "C4",
+          "value": 1639.0137655062024,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "pilot_throttle": {
+          "msg": "RCIN",
+          "col": "C3",
+          "value": 1000.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "servo_throttle": {
+          "msg": "RCOU",
+          "col": "C3",
+          "value": 1639.0137655062024,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "demand_roll": {
+          "msg": "ATT",
+          "col": "DesRoll",
+          "value": 0.4481617806159576,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "demand_pitch": {
+          "msg": "ATT",
+          "col": "DesPitch",
+          "value": 0.42269634541009304,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "demand_yaw": {
+          "msg": "ATT",
+          "col": "DesYaw",
+          "value": 353.909683437584,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "demand_throttle": {
+          "msg": "CTUN",
+          "col": "ThO",
+          "value": null,
+          "sample_timestamp": null,
+          "interpolated": false,
+          "bracket": null
+        },
+        "response_roll": {
+          "msg": "ATT",
+          "col": "Roll",
+          "value": 0.35117383392131885,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "response_pitch": {
+          "msg": "ATT",
+          "col": "Pitch",
+          "value": 0.3277742754964646,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "response_yaw": {
+          "msg": "ATT",
+          "col": "Yaw",
+          "value": 353.8928858213207,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "altitude_agl": {
+          "msg": "POS",
+          "col": "RelHomeAlt",
+          "value": 1.7655547220452144,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "vertical_speed": {
+          "msg": "BARO[0]",
+          "col": "CRt",
+          "value": 1.4999108270627552,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "ground_speed": {
+          "msg": "GPS[0]",
+          "col": "Spd",
+          "value": 0.04057247005000557,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.989316,
+            135.189236
+          ]
+        },
+        "gps_status": {
+          "msg": "GPS[0]",
+          "col": "Status",
+          "value": 6.0,
+          "sample_timestamp": 134.989316,
+          "interpolated": false,
+          "bracket": null
+        },
+        "gps_sats": {
+          "msg": "GPS[0]",
+          "col": "NSats",
+          "value": 10.0,
+          "sample_timestamp": 134.989316,
+          "interpolated": false,
+          "bracket": null
+        },
+        "position_lat": {
+          "msg": "GPS[0]",
+          "col": "Lat",
+          "value": -35.3632619,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.989316,
+            135.189236
+          ]
+        },
+        "position_lng": {
+          "msg": "GPS[0]",
+          "col": "Lng",
+          "value": 149.16523709465588,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.989316,
+            135.189236
+          ]
+        },
+        "ekf_worst": {
+          "msg": "XKF4[0]",
+          "col": "SV",
+          "value": 0.01,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "posdiv_ipn": {
+          "msg": "XKF3[0]",
+          "col": "IPN",
+          "value": -0.005068827531012067,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        },
+        "posdiv_ipe": {
+          "msg": "XKF3[0]",
+          "col": "IPE",
+          "value": 0.005068827531012067,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            134.949332,
+            135.049292
+          ]
+        }
+      }
     },
     {
       "index": 2,
-      "captured_at": "2026-06-04T07:37:15",
+      "captured_at": "2026-06-04T07:48:02",
       "cursor_time": 150.0,
       "log_path": "/home/manikanth/Downloads/00000012(1).BIN",
       "event": {
@@ -141,11 +409,279 @@
       },
       "verification_state": "NOT_LOADED",
       "notes": "descent / LAND mode entry",
-      "status": "FLAGGED"
+      "status": "FLAGGED",
+      "provenance": {
+        "pilot_roll": {
+          "msg": "RCIN",
+          "col": "C1",
+          "value": 1500.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "servo_roll": {
+          "msg": "RCOU",
+          "col": "C1",
+          "value": 1588.5085734293716,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "pilot_pitch": {
+          "msg": "RCIN",
+          "col": "C2",
+          "value": 1500.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "servo_pitch": {
+          "msg": "RCOU",
+          "col": "C2",
+          "value": 1588.4914265706284,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "pilot_yaw": {
+          "msg": "RCIN",
+          "col": "C4",
+          "value": 1500.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "servo_yaw": {
+          "msg": "RCOU",
+          "col": "C4",
+          "value": 1588.5085734293716,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "pilot_throttle": {
+          "msg": "RCIN",
+          "col": "C3",
+          "value": 1000.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "servo_throttle": {
+          "msg": "RCOU",
+          "col": "C3",
+          "value": 1588.4914265706284,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "demand_roll": {
+          "msg": "ATT",
+          "col": "DesRoll",
+          "value": 0.19323884369093644,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "demand_pitch": {
+          "msg": "ATT",
+          "col": "DesPitch",
+          "value": 0.2174957214164087,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "demand_yaw": {
+          "msg": "ATT",
+          "col": "DesYaw",
+          "value": 352.4073791503906,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "demand_throttle": {
+          "msg": "CTUN",
+          "col": "ThO",
+          "value": null,
+          "sample_timestamp": null,
+          "interpolated": false,
+          "bracket": null
+        },
+        "response_roll": {
+          "msg": "ATT",
+          "col": "Roll",
+          "value": 0.18171097053935653,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "response_pitch": {
+          "msg": "ATT",
+          "col": "Pitch",
+          "value": 0.21338739464325582,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "response_yaw": {
+          "msg": "ATT",
+          "col": "Yaw",
+          "value": 352.4049553576924,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "altitude_agl": {
+          "msg": "POS",
+          "col": "RelHomeAlt",
+          "value": 9.225277819095398,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "vertical_speed": {
+          "msg": "BARO[0]",
+          "col": "CRt",
+          "value": -0.531331201036628,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "ground_speed": {
+          "msg": "GPS[0]",
+          "col": "Spd",
+          "value": 0.006945713492482688,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.989147,
+            150.189067
+          ]
+        },
+        "gps_status": {
+          "msg": "GPS[0]",
+          "col": "Status",
+          "value": 6.0,
+          "sample_timestamp": 149.989147,
+          "interpolated": false,
+          "bracket": null
+        },
+        "gps_sats": {
+          "msg": "GPS[0]",
+          "col": "NSats",
+          "value": 10.0,
+          "sample_timestamp": 149.989147,
+          "interpolated": false,
+          "bracket": null
+        },
+        "position_lat": {
+          "msg": "GPS[0]",
+          "col": "Lat",
+          "value": -35.3632619,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.989147,
+            150.189067
+          ]
+        },
+        "position_lng": {
+          "msg": "GPS[0]",
+          "col": "Lng",
+          "value": 149.1652373,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.989147,
+            150.189067
+          ]
+        },
+        "ekf_worst": {
+          "msg": "XKF4[0]",
+          "col": "SM",
+          "value": 0.01,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "posdiv_ipn": {
+          "msg": "XKF3[0]",
+          "col": "IPN",
+          "value": -0.01,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        },
+        "posdiv_ipe": {
+          "msg": "XKF3[0]",
+          "col": "IPE",
+          "value": 0.005085734293717111,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            149.949163,
+            150.049123
+          ]
+        }
+      }
     },
     {
       "index": 3,
-      "captured_at": "2026-06-04T07:37:15",
+      "captured_at": "2026-06-04T07:48:02",
       "cursor_time": 175.0,
       "log_path": "/home/manikanth/Downloads/00000012(1).BIN",
       "event": {
@@ -207,7 +743,275 @@
       },
       "verification_state": "NOT_LOADED",
       "notes": "post-flight, disarmed",
-      "status": "OPEN"
+      "status": "OPEN",
+      "provenance": {
+        "pilot_roll": {
+          "msg": "RCIN",
+          "col": "C1",
+          "value": 1500.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "servo_roll": {
+          "msg": "RCOU",
+          "col": "C1",
+          "value": 1000.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "pilot_pitch": {
+          "msg": "RCIN",
+          "col": "C2",
+          "value": 1500.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "servo_pitch": {
+          "msg": "RCOU",
+          "col": "C2",
+          "value": 1000.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "pilot_yaw": {
+          "msg": "RCIN",
+          "col": "C4",
+          "value": 1500.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "servo_yaw": {
+          "msg": "RCOU",
+          "col": "C4",
+          "value": 1000.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "pilot_throttle": {
+          "msg": "RCIN",
+          "col": "C3",
+          "value": 1000.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "servo_throttle": {
+          "msg": "RCOU",
+          "col": "C3",
+          "value": 1000.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "demand_roll": {
+          "msg": "ATT",
+          "col": "DesRoll",
+          "value": 0.00021842433488927782,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "demand_pitch": {
+          "msg": "ATT",
+          "col": "DesPitch",
+          "value": -0.0003247232964673733,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "demand_yaw": {
+          "msg": "ATT",
+          "col": "DesYaw",
+          "value": 351.7909985261805,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "demand_throttle": {
+          "msg": "CTUN",
+          "col": "ThO",
+          "value": null,
+          "sample_timestamp": null,
+          "interpolated": false,
+          "bracket": null
+        },
+        "response_roll": {
+          "msg": "ATT",
+          "col": "Roll",
+          "value": 0.1868213005426551,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "response_pitch": {
+          "msg": "ATT",
+          "col": "Pitch",
+          "value": 0.17833818601710455,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "response_yaw": {
+          "msg": "ATT",
+          "col": "Yaw",
+          "value": 351.7909985261805,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "altitude_agl": {
+          "msg": "POS",
+          "col": "RelHomeAlt",
+          "value": 0.014313922585536014,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "vertical_speed": {
+          "msg": "BARO[0]",
+          "col": "CRt",
+          "value": 0.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "ground_speed": {
+          "msg": "GPS[0]",
+          "col": "Spd",
+          "value": 0.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.989143,
+            175.189063
+          ]
+        },
+        "gps_status": {
+          "msg": "GPS[0]",
+          "col": "Status",
+          "value": 6.0,
+          "sample_timestamp": 174.989143,
+          "interpolated": false,
+          "bracket": null
+        },
+        "gps_sats": {
+          "msg": "GPS[0]",
+          "col": "NSats",
+          "value": 10.0,
+          "sample_timestamp": 174.989143,
+          "interpolated": false,
+          "bracket": null
+        },
+        "position_lat": {
+          "msg": "GPS[0]",
+          "col": "Lat",
+          "value": -35.3632621,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.989143,
+            175.189063
+          ]
+        },
+        "position_lng": {
+          "msg": "GPS[0]",
+          "col": "Lng",
+          "value": 149.1652373,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.989143,
+            175.189063
+          ]
+        },
+        "ekf_worst": {
+          "msg": "XKF4[0]",
+          "col": "SV",
+          "value": 0.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "posdiv_ipn": {
+          "msg": "XKF3[0]",
+          "col": "IPN",
+          "value": 0.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        },
+        "posdiv_ipe": {
+          "msg": "XKF3[0]",
+          "col": "IPE",
+          "value": 0.0,
+          "sample_timestamp": null,
+          "interpolated": true,
+          "bracket": [
+            174.949159,
+            175.049119
+          ]
+        }
+      }
     }
   ]
 }
