@@ -22,9 +22,10 @@ from core.flight_metrics import FlightMetrics
 from core.health_analyzer import HealthAnalyzer
 from core.event_extractor import EventExtractor
 
-# Module indices used by nav_requested (match MainWindow tab order).
-_NAV_SIGNALS = 1
-_NAV_VERIFY = 3
+# Module indices used by nav_requested (match MainWindow tab order;
+# Timeline was inserted at index 1, shifting Signals→2 and Verify→4).
+_NAV_SIGNALS = 2
+_NAV_VERIFY = 4
 
 _SEV_COLORS = {
     'CRITICAL': T.status.critical,

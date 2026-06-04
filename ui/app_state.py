@@ -69,6 +69,7 @@ class AppState(QObject):
         # ── shared cursor backbone ──────────────────────────────────────────
         self._cursor_time: float = 0.0
         self._broadcasting: bool = False      # loop-prevention guard
+        self._cursor_subscribers: list[str] = []   # named, for debug/introspection
         # lazy services, rebuilt on data_changed; shared by every cursor surface
         self._sample_service = None
         self._timeline_model = None
@@ -161,6 +162,36 @@ class AppState(QObject):
         in one operation, so all surfaces update from a single user action."""
         self.event_jumped.emit(float(t_absolute))
         self.set_cursor_time(t_absolute)
+
+    def connect_cursor(self, slot, name: str):
+        """Subscribe a surface to the shared cursor and register it by name.
+
+        Equivalent to ``cursor_time_changed.connect(slot)`` but also records a
+        human-readable name so ``cursor_debug_info()`` can list who is wired to
+        the cursor — used purely for synchronization debugging.
+        """
+        self.cursor_time_changed.connect(slot)
+        self._cursor_subscribers.append(name)
+
+    def cursor_debug_info(self) -> dict:
+        """Lightweight introspection of the shared-cursor backbone.
+
+        For synchronization debugging only — reports the live cursor time, the
+        broadcasting guard state, how many slots are wired to the cursor signal
+        (Qt's own count, incl. anonymous direct connects), and the names of the
+        subscribers registered via ``connect_cursor``.
+        """
+        try:
+            qt_count = self.receivers(self.cursor_time_changed)
+        except Exception:
+            qt_count = -1
+        return {
+            'cursor_time':      self._cursor_time,
+            'broadcasting':     self._broadcasting,
+            'subscriber_count': qt_count,
+            'named_count':      len(self._cursor_subscribers),
+            'subscribers':      list(self._cursor_subscribers),
+        }
 
     def request_module(self, index: int):
         self.module_requested.emit(index)

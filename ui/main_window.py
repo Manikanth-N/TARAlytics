@@ -173,26 +173,30 @@ class MainWindow(QMainWindow):
         from ui.tab_3d_view import View3DTab
         from ui.tab_map_view import MapTab
         from ui.modules.mod_debrief import DebriefModule
+        from ui.modules.mod_timeline import TimelineModule
 
         self._tab_verify  = VerificationTab(self)
         self._tab_plotter = PlotterTab(self)
         self._tab_3d      = View3DTab(self)
         self._tab_map     = MapTab(self)
         self._mod_debrief = DebriefModule(self._app_state)
+        self._mod_timeline = TimelineModule(self._app_state)
 
         # QTabWidget with a hidden tab bar acts as the page stack; the
         # NavigationRail drives page switching. Keeping QTabWidget preserves
-        # all existing references and tests.
+        # all existing references and tests. Timeline sits at index 1 — the
+        # primary investigation/navigation surface.
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._mod_debrief, 'Debrief')           # index 0
-        self._tabs.addTab(self._tab_plotter, 'Signal Plotter')    # index 1
-        self._tabs.addTab(self._tab_3d,      '3D Flight View')    # index 2
-        self._tabs.addTab(self._tab_verify,  'Log Verification')  # index 3
-        self._tabs.addTab(self._tab_map,     '2D Map')            # index 4
+        self._tabs.addTab(self._mod_debrief,  'Debrief')           # index 0
+        self._tabs.addTab(self._mod_timeline, 'Timeline')          # index 1
+        self._tabs.addTab(self._tab_plotter,  'Signal Plotter')    # index 2
+        self._tabs.addTab(self._tab_3d,       '3D Flight View')    # index 3
+        self._tabs.addTab(self._tab_verify,   'Log Verification')  # index 4
+        self._tabs.addTab(self._tab_map,      '2D Map')            # index 5
         self._tabs.tabBar().hide()
 
         self._nav_rail = NavigationRail(
-            ['DEBRIEF', 'SIGNALS', 'REPLAY', 'VERIFY', 'MAP']
+            ['DEBRIEF', 'TIMELINE', 'SIGNALS', 'REPLAY', 'VERIFY', 'MAP']
         )
         self._nav_rail.module_requested.connect(self._on_module_requested)
 
@@ -225,9 +229,11 @@ class MainWindow(QMainWindow):
         # The broadcast guard in AppState prevents feedback loops.
         self._tab_plotter.crosshair_moved.connect(self._app_state.set_cursor_time)
         self._tab_plotter.crosshair_moved.connect(self.plotter_cursor_moved)  # legacy passthrough
-        self._app_state.cursor_time_changed.connect(self._tab_3d.set_time)
-        self._app_state.cursor_time_changed.connect(self._tab_map.set_time)
-        self._app_state.cursor_time_changed.connect(self._tab_plotter.set_crosshair)
+        # Named subscribers so AppState.cursor_debug_info() can list who follows
+        # the cursor (TimelineCanvas registers itself in its constructor).
+        self._app_state.connect_cursor(self._tab_3d.set_time, 'View3D')
+        self._app_state.connect_cursor(self._tab_map.set_time, 'MapTab')
+        self._app_state.connect_cursor(self._tab_plotter.set_crosshair, 'Plotter')
         self.event_selected.connect(self._on_event_selected)
 
         # Keyboard shortcuts: Space = play/pause, [ / ] = step ±0.5 s

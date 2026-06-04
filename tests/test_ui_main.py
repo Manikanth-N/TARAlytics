@@ -19,12 +19,12 @@ class TestMainWindowStructure:
         assert main_window.windowTitle() == 'TARAlytics Log Analyzer'
 
     def test_tabs_exist(self, main_window):
-        # Five page-stack tabs: Debrief, Signal Plotter, 3D Flight View,
+        # Six page-stack tabs: Debrief, Timeline, Signal Plotter, 3D Flight View,
         # Log Verification, 2D Map. The tab bar is hidden — navigation is
         # driven by the NavigationRail.
         tabs = main_window._tabs
         assert tabs is not None
-        assert tabs.count() == 5
+        assert tabs.count() == 6
         assert tabs.tabBar().isHidden()
 
     def test_tab_names(self, main_window):
@@ -34,6 +34,7 @@ class TestMainWindowStructure:
         assert 'Signal Plotter' in names
         assert '3D Flight View' in names
         assert 'Debrief' in names
+        assert 'Timeline' in names
 
     def test_nav_rail_switches_pages(self, main_window):
         main_window._on_module_requested(1)
