@@ -9,6 +9,9 @@ from PyQt6.QtGui import QPainter, QColor, QLinearGradient, QPen, QFont
 from core.gps_converter import best_trajectory
 from core.colors import altitude_rgb
 from core.event_extractor import EventExtractor
+from core.basemap.projection import enu_to_lla
+from core.basemap.aviation import AviationData
+from core.basemap.overlays import OverlayManager
 from ui.widgets.map_basemap import MapBasemap
 
 _MAX_TRACK_PTS = 3000
@@ -162,6 +165,18 @@ class MapTab(QWidget):
         self._basemap = MapBasemap(self._plot)
         self._apply_basemap_style()
 
+        # Overlay layers (airports/runways now; registry-extensible) above the
+        # backdrop, below the track. Built from OurAirports on data load.
+        self._overlays = OverlayManager(self._plot)
+        self._cb_airports.toggled.connect(
+            lambda on: self._set_overlay('airports', 'show_airports', on))
+        self._cb_runways.toggled.connect(
+            lambda on: self._set_overlay('runways', 'show_runways', on))
+
+    def _set_overlay(self, layer_id, setting_key, on):
+        self._overlays.set_visible(layer_id, on)
+        self._settings.setValue(setting_key, on)
+
     # ── basemap toolbar helpers ─────────────────────────────────────────────
     def _lbl(self, text):
         l = QLabel(text)
@@ -206,9 +221,27 @@ class MapTab(QWidget):
     def _apply_basemap_style(self):
         self._basemap.set_style(self._basemap_cb.currentText().lower())
 
+    def _build_overlays(self, traj, lat0, lon0):
+        """Rebuild airports/runways overlays for this flight's lat/lon bbox."""
+        if abs(lat0) < 1e-3 and abs(lon0) < 1e-3:
+            self._overlays.clear()                 # SIM / non-geographic
+            return
+        east, north = traj['east'], traj['north']
+        margin = 2000.0                            # +2 km context around the track
+        lat_a, lon_a = enu_to_lla(float(east.min()) - margin,
+                                  float(north.min()) - margin, lat0, lon0)
+        lat_b, lon_b = enu_to_lla(float(east.max()) + margin,
+                                  float(north.max()) + margin, lat0, lon0)
+        bbox = (lat_a, lat_b, lon_a, lon_b)
+        av = AviationData.load()
+        self._overlays.set_data(av, lat0, lon0, bbox)
+        self._overlays.set_visible('airports', self._cb_airports.isChecked())
+        self._overlays.set_visible('runways', self._cb_runways.isChecked())
+
     def update_data(self, data: dict):
         self._plot.clear()
         self._basemap.reset()          # plot.clear() removed backdrop items; drop refs
+        self._overlays.reset()
         self._pos_item = None
         self._evt_highlight = None
         self._alt_legend.clear()
@@ -229,8 +262,10 @@ class MapTab(QWidget):
             return
 
         # Position the basemap backdrop on this flight's home origin.
-        self._basemap.set_origin(
-            float(traj.get('origin_lat', 0.0)), float(traj.get('origin_lon', 0.0)))
+        lat0 = float(traj.get('origin_lat', 0.0))
+        lon0 = float(traj.get('origin_lon', 0.0))
+        self._basemap.set_origin(lat0, lon0)
+        self._build_overlays(traj, lat0, lon0)
 
         east  = traj['east']
         north = traj['north']
