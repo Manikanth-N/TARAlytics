@@ -75,6 +75,7 @@ class AppState(QObject):
         self._sample_service = None
         self._timeline_model = None
         self._rc_model = None
+        self._flight_report = None     # whole-flight analytics (P3)
 
         # investigation snapshots (P2) — per-log session, cleared on reload
         from core.snapshot import SnapshotStore
@@ -110,6 +111,7 @@ class AppState(QObject):
         self._sample_service = None
         self._timeline_model = None
         self._rc_model = None
+        self._flight_report = None
         self._cursor_time = 0.0
         # Snapshots reference this log; clear them on reload.
         self._snapshots.clear()
@@ -272,6 +274,15 @@ class AppState(QObject):
             from core.rc_model import RCModel
             self._rc_model = RCModel.from_data(self._data)
         return self._rc_model
+
+    @property
+    def flight_report(self):
+        """Whole-flight analytics (P3) — 'was this a good flight?'. Built once per
+        log over the shared TimelineModel, cached."""
+        if self._flight_report is None and self._data:
+            from core.flight_analytics import FlightAnalytics
+            self._flight_report = FlightAnalytics(self._data, self.timeline_model).report()
+        return self._flight_report
 
     # ── Metadata extraction ────────────────────────────────────────────────
 
