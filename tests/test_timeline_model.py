@@ -4,7 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from core.timeline_model import TimelineModel, Phase, ModeSegment, ArmRegion
+from core.timeline_model import (
+    TimelineModel, Phase, ModeSegment, ArmRegion, FlightWindow,
+)
 
 
 # ── synthetic log builders ───────────────────────────────────────────────────
@@ -92,6 +94,54 @@ class TestNormalFlight:
         assert tl.phase_at(30.0).kind == 'HOVER'
         assert tl.mode_at(30.0) == 'GUIDED'
         assert tl.phase_at(2.0).kind == 'PRE_ARM'
+
+
+class TestFlightWindows:
+    def test_single_window_summary(self):
+        t, agl = _normal_profile()
+        data = {'POS': _pos(t, agl),
+                'ARM': _arm([(5.0, True), (55.0, False)]),
+                'MODE': _mode([(0, 0), (5, 4), (45, 9)]),
+                'EV': _ev([(10.0, 25), (30.0, 26)])}
+        w = TimelineModel(data).flight_windows()
+        assert len(w) == 1
+        fw = w[0]
+        assert isinstance(fw, FlightWindow)
+        assert fw.index == 0 and fw.source == 'ARM'
+        assert fw.start == pytest.approx(5.0) and fw.end == pytest.approx(55.0)
+        assert fw.duration == pytest.approx(50.0)
+        assert fw.peak_agl == pytest.approx(10.0, abs=0.5)
+        assert fw.mode_count == 2          # GUIDED + LAND overlap the window
+        assert fw.event_count >= 2
+
+    def test_multi_flight_windows(self):
+        # two arm/disarm cycles -> two FlightWindows with independent stats
+        t = np.arange(0.0, 100.0, 0.5)
+        agl = np.where((t >= 5) & (t < 25), 8.0,
+              np.where((t >= 40) & (t < 80), 12.0, 0.0))
+        data = {'POS': _pos(t, agl),
+                'ARM': _arm([(5, True), (25, False), (40, True), (80, False)]),
+                'MODE': _mode([(0, 0), (5, 4), (40, 5)])}
+        w = TimelineModel(data).flight_windows()
+        assert len(w) == 2
+        assert w[0].index == 0 and w[1].index == 1
+        assert w[0].peak_agl == pytest.approx(8.0, abs=0.5)
+        assert w[1].peak_agl == pytest.approx(12.0, abs=0.5)
+        assert w[1].duration == pytest.approx(40.0)
+
+    def test_summary_api(self):
+        t, agl = _normal_profile()
+        data = {'POS': _pos(t, agl), 'ARM': _arm([(5, True), (55, False)]),
+                'MODE': _mode([(0, 0)])}
+        s = TimelineModel(data).summary()
+        assert s['flight_count'] == 1
+        assert s['armed_total_s'] == pytest.approx(50.0)
+        assert s['peak_agl_m'] == pytest.approx(10.0, abs=0.5)
+        assert 'flights' in s and len(s['flights']) == 1
+
+    def test_no_flights_when_no_arm(self):
+        t, agl = _normal_profile()
+        assert TimelineModel({'POS': _pos(t, agl)}).flight_windows() == []
 
 
 class TestModeTransitions:

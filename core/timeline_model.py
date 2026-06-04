@@ -67,6 +67,23 @@ class AltitudeProfile:
 
 
 @dataclass(frozen=True)
+class FlightWindow:
+    """One armed flight, summarised. Multi-flight logs yield several. Feeds
+    Debrief, Certification, Fleet analytics, and Evidence export."""
+    index: int                   # 0-based flight number within the log
+    start: float
+    end: float
+    duration: float
+    peak_agl: float
+    event_count: int
+    mode_count: int
+    source: str                  # 'ARM' | 'EV'
+
+    def contains(self, t: float) -> bool:
+        return self.start <= t <= self.end
+
+
+@dataclass(frozen=True)
 class Timeline:
     t_start: float
     t_end: float
@@ -75,6 +92,7 @@ class Timeline:
     phases: list                 # [Phase]
     altitude: AltitudeProfile
     events: list                 # [(t, severity, type, message)]
+    flights: list                # [FlightWindow]
 
 
 # ── Phase classification thresholds (documented, conservative) ───────────────
@@ -228,6 +246,43 @@ class TimelineModel:
         """Events as point markers (single authoritative source)."""
         return EventExtractor.collect(self._data)
 
+    def flight_windows(self) -> list:
+        """Per-armed-flight summary windows (start/end/duration/peak AGL/event &
+        mode counts). One per arm region; multi-flight logs produce several."""
+        regions = self.arm_regions()
+        if not regions:
+            return []
+        t_alt, agl, _ = self._agl_series()
+        events = self.event_regions()
+        modes = self.mode_segments()
+        windows = []
+        for i, reg in enumerate(regions):
+            a, d = reg.t_start, reg.t_end
+            if t_alt.size:
+                m = (t_alt >= a) & (t_alt <= d)
+                peak = float(np.nanmax(agl[m])) if np.any(m) and not np.all(np.isnan(agl[m])) else 0.0
+            else:
+                peak = 0.0
+            ev_n = sum(1 for e in events if a <= e[0] <= d)
+            mode_n = len({s.mode_num for s in modes if s.t_start < d and s.t_end > a})
+            windows.append(FlightWindow(
+                index=i, start=a, end=d, duration=d - a,
+                peak_agl=peak, event_count=ev_n, mode_count=mode_n,
+                source=reg.source))
+        return windows
+
+    def summary(self) -> dict:
+        """Compact log-level summary for Debrief/Fleet/Evidence."""
+        w = self.flight_windows()
+        return {
+            'log_span': (self._t_start, self._t_end),
+            'flight_count': len(w),
+            'armed_total_s': sum(x.duration for x in w),
+            'peak_agl_m': max((x.peak_agl for x in w), default=0.0),
+            'event_total': len(self.event_regions()),
+            'flights': w,
+        }
+
     def build(self) -> Timeline:
         return Timeline(
             t_start=self._t_start, t_end=self._t_end,
@@ -236,6 +291,7 @@ class TimelineModel:
             phases=self.phases(),
             altitude=self.altitude_profile(),
             events=self.event_regions(),
+            flights=self.flight_windows(),
         )
 
     # ── consumer helpers (snapshot / verification highlighting) ────────────────
