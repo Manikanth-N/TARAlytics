@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from core.gps_converter import best_trajectory
+from core.flight_metrics import FlightMetrics
 
 
 class _StatCard(QFrame):
@@ -77,22 +78,13 @@ class FlightSummaryWidget(QWidget):
             self._dur.set_value('—')
 
     def _update_altitude(self, data: dict):
-        alt_max = None
-        for key in ('GPS', 'GPS[0]', 'POS'):
-            df = data.get(key)
-            if df is not None and not df.empty:
-                alt_col = next((c for c in ('Alt', 'alt') if c in df.columns), None)
-                if alt_col:
-                    v = float(df[alt_col].dropna().max())
-                    if alt_max is None or v > alt_max:
-                        alt_max = v
-                    break
-        if alt_max is None:
-            sim2 = data.get('SIM2')
-            if sim2 is not None and not sim2.empty and 'PD' in sim2.columns:
-                alt_max = float(-sim2['PD'].min())
-        if alt_max is not None:
-            self._alt.set_value(f'{alt_max:.1f} m', '#93c5fd')
+        # Authoritative metric — identical to the Debrief "MAX ALTITUDE" card
+        # (FlightMetrics.max_altitude). GPS.Alt is intentionally excluded: it is an
+        # unpopulated ~0 denormal on many logs, which previously made this card read
+        # 0.0 m. Hierarchy: POS.RelHomeAlt -> BARO.Alt -> SIM2(-PD) -> POS.Alt(AMSL).
+        _alt, txt = FlightMetrics.max_altitude(data)
+        if txt and txt != '—':
+            self._alt.set_value(txt, '#93c5fd')
         else:
             self._alt.set_value('—')
 
