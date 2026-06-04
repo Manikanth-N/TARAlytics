@@ -10,6 +10,10 @@ from tests.helpers import (
 )
 
 
+def pytest_configure(config):
+    config.addinivalue_line('markers', 'slow: long-running test (huge logs / soak)')
+
+
 @pytest.fixture
 def att_log_bytes():
     return _att_log()

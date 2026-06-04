@@ -138,6 +138,21 @@ class WorkspaceModule(QWidget):
         self._body_lay.setContentsMargins(T.spacing.px8, T.spacing.px8, T.spacing.px8, T.spacing.px8)
         root.addWidget(self._body, 1)
 
+        # Persistent split structure + a hidden stash, REUSED across layout changes
+        # (rather than recreated) so switching layouts doesn't churn widgets/memory.
+        from PyQt6.QtWidgets import QSplitter
+        self._frames: dict[str, PanelFrame] = {}
+        self._stash = QWidget(self); self._stash.hide()
+        self._stash_lay = QVBoxLayout(self._stash)
+        self._main_split = QSplitter(Qt.Orientation.Horizontal)
+        self._right_split = QSplitter(Qt.Orientation.Vertical)
+        self._empty = QLabel('All panels are floating.')
+        self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty.setStyleSheet(f'color: {T.text.muted};')
+        self._body_lay.addWidget(self._main_split)
+        self._body_lay.addWidget(self._empty)
+        self._empty.hide()
+
     def _hbtn(self, text, tip):
         b = QPushButton(text); b.setToolTip(tip); b.setFixedHeight(24)
         b.setStyleSheet(
@@ -245,51 +260,58 @@ class WorkspaceModule(QWidget):
         i = self._layout_cb.findText(name)
         if i >= 0:
             self._layout_cb.setCurrentIndex(i)
-        # Detach cached (non-floating) surfaces first so destroying the old
-        # PanelFrames doesn't delete the surfaces we want to reuse.
-        for k, surf in self._panels.items():
-            if k in self._floating:
-                continue
-            try:
-                surf.setParent(None)
-            except RuntimeError:
-                pass
-        while self._body_lay.count():
-            it = self._body_lay.takeAt(0)
-            if it.widget():
-                it.widget().deleteLater()
         keys = [k for k in layout if k not in self._floating]
-        self._body_lay.addWidget(self._build_split(keys))
-        # apply a relevant signal preset
+        self._arrange(keys)
         preset = _LAYOUT_PRESET.get(name)
         if preset and 'signals' in keys:
             try:
-                self._panels['signals'].apply_preset(preset)
+                self._frame('signals').widget.apply_preset(preset)
             except Exception:
                 pass
 
-    def _build_split(self, keys: list) -> QWidget:
+    def _frame(self, key: str) -> 'PanelFrame':
+        """Cached PanelFrame wrapping a cached surface (created once, then reused)."""
+        fr = self._frames.get(key)
+        if fr is not None:
+            try:
+                fr.isVisible(); return fr
+            except RuntimeError:
+                self._frames.pop(key, None)
+        fr = PanelFrame(key, self._surface(key), on_popout=self._popout)
+        self._frames[key] = fr
+        return fr
+
+    @staticmethod
+    def _drain(split):
+        """Move a splitter's children to limbo without deleting them."""
+        while split.count():
+            split.widget(0).setParent(None)
+
+    def _arrange(self, keys: list):
+        """Rearrange the PERSISTENT splitters by moving cached frames in/out — no
+        widget creation/deletion, so layout switching does not churn memory."""
+        # park every cached frame in the hidden stash first (no deletion);
+        # leave floating frames in their windows.
+        self._drain(self._main_split)
+        self._drain(self._right_split)
+        for k, fr in self._frames.items():
+            if k in self._floating:
+                continue
+            self._stash_lay.addWidget(fr); fr.hide()
         if not keys:
-            lbl = QLabel('All panels are floating.')
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet(f'color: {T.text.muted};')
-            return lbl
-        frames = [PanelFrame(k, self._surface(k), on_popout=self._popout) for k in keys]
-        if len(frames) == 1:
-            return frames[0]
-        # primary on the left, the rest stacked vertically on the right
-        split = QSplitter(Qt.Orientation.Horizontal)
-        split.addWidget(frames[0])
+            self._main_split.hide(); self._empty.show(); return
+        self._empty.hide(); self._main_split.show()
+        frames = [self._frame(k) for k in keys]
+        for fr in frames:
+            fr.show()
+        self._main_split.addWidget(frames[0])
         if len(frames) == 2:
-            split.addWidget(frames[1])
-            split.setSizes([640, 420])
-        else:
-            right = QSplitter(Qt.Orientation.Vertical)
+            self._main_split.addWidget(frames[1]); self._main_split.setSizes([640, 420])
+        elif len(frames) >= 3:
             for fr in frames[1:]:
-                right.addWidget(fr)
-            split.addWidget(right)
-            split.setSizes([720, 460])
-        return split
+                self._right_split.addWidget(fr)
+            self._main_split.addWidget(self._right_split)
+            self._main_split.setSizes([720, 460])
 
     def _on_layout_selected(self, _i):
         self.set_layout(self._layout_cb.currentText())
@@ -299,12 +321,14 @@ class WorkspaceModule(QWidget):
     def _popout(self, key: str):
         if key in self._floating:
             return
-        surface = self._surface(key)
-        win = _FloatingPanel(key, surface, on_close=lambda k=key: self._redock(k))
+        frame = self._frame(key)
+        frame.show()
+        win = _FloatingPanel(key, frame, on_close=lambda k=key: self._redock(k))
         self._floating[key] = win
-        win.resize(420, 380)
+        win.resize(440, 400)
         win.show()
-        self.set_layout(self._current)   # rebuild without the popped-out panel
+        if self._current:
+            self.set_layout(self._current)   # rebuild without the popped-out panel
 
     def _redock(self, key: str):
         if key in self._floating:
@@ -359,6 +383,7 @@ class _FloatingPanel(QWidget):
     def __init__(self, key, surface, on_close, parent=None):
         super().__init__(parent)
         self._on_close = on_close
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setWindowTitle(f'TARAlytics — {_TITLES.get(key, key)}')
         lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(surface)

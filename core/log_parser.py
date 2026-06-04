@@ -111,9 +111,20 @@ class ParseRunnable(QRunnable):
         try:
             parser = DataFlashParser()
             result = parser.parse(self.filepath, self.signals)
+            _malloc_trim()      # return the parse's large transient arenas to the OS
             self.signals.finished.emit(result)
         except Exception as e:
             self.signals.error.emit(str(e))
+
+
+def _malloc_trim():
+    """Hint glibc to release freed memory back to the OS after a parse's heavy
+    transient allocations. No-op off Linux/glibc (e.g. Windows)."""
+    try:
+        import ctypes
+        ctypes.CDLL('libc.so.6').malloc_trim(0)
+    except Exception:
+        pass
 
 
 class VerifySignals(QObject):
