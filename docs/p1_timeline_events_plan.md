@@ -88,6 +88,36 @@ Events (highlights current), Verify (highlights covering chunk — read-only).
 
 ---
 
+### A4. Investigation Snapshot system (cursor-powered)
+Captures the full investigation context at the cursor (or a selected event) into a
+structured, exportable record. Built entirely from `SampleService` + `TimelineModel`
++ `EventExtractor` — no new data.
+```
+core/snapshot.py
+  build_snapshot(app_state, t) -> Snapshot{
+    timestamp, event(nearest/selected), mode(latest_at MODE),
+    location(POS/GPS lat/lng/alt AGL), altitude,
+    pilot_inputs(RCModel: roll/pitch/yaw/throttle),
+    controller_demand(ATT.DesRoll/DesPitch/DesYaw, RATE.*Des),
+    aircraft_response(ATT.Roll/Pitch/Yaw, RATE.*),
+    notes(from Events store) }
+```
+A snapshot is what an investigator attaches to a finding and what feeds future
+certification evidence export (one row = one defensible "at T, the aircraft was…").
+
+### C0. Persistent Values-at-Cursor table (authoritative numeric view)
+The single source of truth for every cursor-synced surface. Always-available dock
+listing the resolved value (via `SampleService`) of all active/pinned signals at the
+current cursor time. The horizon, sticks, map readouts are *visual* renderings of the
+same numbers this table shows — they cannot disagree, because all call `SampleService`.
+```
+[ VALUES @ 152.30 s ]                  pin ★  add +
+  ATT.Roll      -2.1 °     ATT.DesRoll  -2.0 °
+  RCIN.Roll(C1)  1490      RCOU.C1       1502
+  BARO.Alt       9.8 m     MODE          LOITER
+  ...                       (— when out of range; never fabricated)
+```
+
 ## C. UI Layer
 
 ### C1. Mission Timeline (nav ②, primary surface)
@@ -178,20 +208,24 @@ category panel.
 
 ---
 
-## G. Implementation Order (approved)
-1. `core/timeline_model.py` + tests (pure).
-2. `core/sample_service.py` + `core/rc_model.py` + tests (pure) — **shared cursor infra**.
-3. **Mission Timeline** (`mod_timeline.py`, `timeline_strip.py`) — wire shared cursor
-   to Plotter + Replay.
-4. **Unified Events** (`mod_events.py`, `event_table_unified.py`) — filters/search/
+## G. Implementation Order (approved, revised)
+The sampling layer is the foundation of every cursor-driven workflow, so it goes
+first.
+1. **`core/sample_service.py`** + tests — value-at-time engine. ✅ DONE (step-1 report below).
+2. `core/timeline_model.py` + tests (pure).
+3. `core/rc_model.py` + tests (pure).
+4. **Mission Timeline** (`mod_timeline.py`, `timeline_strip.py`) — shared cursor to
+   Plotter + Replay.
+5. **Unified Events** (`mod_events.py`, `event_table_unified.py`) — filters/search/
    notes/status/jump; switch Debrief Notable Events to deep-link; remove fragments.
-5. **Situational Awareness Panel** (`attitude_indicator.py`, `rc_stick.py`,
-   `situational_panel.py`) — actual-vs-desired + pilot-vs-controller.
-6. **Map synchronization** — MapTab subscribes to cursor; event pins.
-7. **Replay synchronization enhancements** — embed panel as HUD; bidirectional seek.
+6. **Situational Awareness Panel** (`attitude_indicator.py`, `rc_stick.py`,
+   `situational_panel.py`) + **Values-at-Cursor table** + **Investigation Snapshot**
+   (`core/snapshot.py`) — actual-vs-desired + pilot-vs-controller.
+7. **Map synchronization** — MapTab subscribes to cursor; event pins.
+8. **Replay synchronization enhancements** — embed panel as HUD; bidirectional seek.
 
 Each step ships independently; tests updated alongside; Verification-tab tests
-adjusted in step 4's commit.
+adjusted in the Unified Events commit.
 
 ---
 
