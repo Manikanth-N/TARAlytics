@@ -24,6 +24,16 @@ MODE_NAMES = {
 }
 
 
+def auto_z_exag(hext: float, vext: float, stationary: bool) -> float:
+    """Vertical exaggeration so altitude reads at ~half the horizontal span (capped
+    ×6). 1.0 when the flight is already tall enough; 5.0 for a stationary hover test."""
+    if stationary:
+        return 5.0
+    if vext > 0.1:
+        return float(min(6.0, max(1.0, hext * 0.5 / vext)))
+    return 1.0
+
+
 def _interp(times, values, t):
     if len(times) == 0:
         return 0.0
@@ -95,6 +105,7 @@ class View3DTab(QWidget):
         self._arrow_items = []
         self._aircraft_items = []
         self._aircraft_scale = 1.0
+        self._z_exag = 1.0
         self._show_arrows = True
         self._follow_vehicle = True
         self._default_elevation = 30
@@ -222,19 +233,25 @@ class View3DTab(QWidget):
         # Detect stationary SITL log (all axes < 1 m extent)
         extent_xyz = np.ptp(pts_clean, axis=0)  # [E, N, U]
         _stationary = np.all(extent_xyz < 1.0)
+        hext = float(max(extent_xyz[0], extent_xyz[1]))
+        vext = float(extent_xyz[2])
+        # Auto vertical exaggeration (P2): a flight far wider than it is tall reads
+        # flat at 1:1, so scale Z up until vertical spans ~half the horizontal extent
+        # (capped ×6). Telemetry always reports TRUE altitude, never the exaggerated Z.
+        self._z_exag = auto_z_exag(hext, vext, _stationary)
+
+        pts_draw = pts_clean.copy()
+        pts_draw[:, 2] *= self._z_exag
         if _stationary:
-            pts_draw = pts_clean.copy()
-            pts_draw[:, 2] *= 5.0   # exaggerate altitude ×5 for visibility
             traj_color = np.tile([0.3, 0.8, 1.0, 1.0], (len(pts_draw), 1)).astype(np.float32)
             traj_width = 4
         else:
-            pts_draw = pts_clean
             alt_min = up.min()
             alt_max = up.max()
             alt_range = alt_max - alt_min if alt_max > alt_min else 1.0
             traj_color = np.array([
                 viridis_rgba((u - alt_min) / alt_range) for u in pts_clean[:, 2]
-            ], dtype=np.float32)
+            ], dtype=np.float32)   # colour by TRUE altitude
             traj_width = 2
 
         self._traj_item = gl.GLLinePlotItem(
@@ -262,7 +279,8 @@ class View3DTab(QWidget):
                 if _col in att_df.columns:
                     init_yaw = float(att_df[_col].iloc[0])
                     break
-        self._update_aircraft_pose(float(east[0]), float(north[0]), float(up[0]), init_yaw)
+        self._update_aircraft_pose(float(east[0]), float(north[0]),
+                                   float(up[0]) * self._z_exag, init_yaw)
 
         home = gl.GLScatterPlotItem(
             pos=np.array([[0, 0, 0]], dtype=np.float32),
@@ -281,7 +299,7 @@ class View3DTab(QWidget):
         dist = max(extent * 2.0, 10.0)
         cx = float(np.mean(east))
         cy = float(np.mean(north))
-        cz = float(np.mean(up))
+        cz = float(np.mean(up)) * self._z_exag
         self._gl.opts['center'] = pg_vector(cx, cy, cz)
         self._gl.opts['distance'] = dist
         self._default_dist = dist
@@ -329,7 +347,7 @@ class View3DTab(QWidget):
             last_t = t
             yaw_deg = _interp(att_times, yaw_vals, t)
             yaw_rad = math.radians(yaw_deg)
-            x0, y0, z0 = float(east[i]), float(north[i]), float(up[i])
+            x0, y0, z0 = float(east[i]), float(north[i]), float(up[i]) * self._z_exag
             dx = arrow_len * math.sin(yaw_rad)
             dy = arrow_len * math.cos(yaw_rad)
             pts = np.array([[x0, y0, z0], [x0 + dx, y0 + dy, z0]], dtype=np.float32)
@@ -400,10 +418,11 @@ class View3DTab(QWidget):
 
         xe = _interp(times, east, t)
         xn = _interp(times, north, t)
-        xu = _interp(times, up, t)
+        xu = _interp(times, up, t)          # TRUE altitude (telemetry, colour)
+        xu_draw = xu * self._z_exag         # exaggerated Z for the 3-D scene
 
         if self._follow_vehicle and GL_AVAILABLE:
-            self._gl.opts['center'] = pg_vector(xe, xn, xu)
+            self._gl.opts['center'] = pg_vector(xe, xn, xu_draw)
             self._gl.update()
 
         data = self._data
@@ -421,7 +440,7 @@ class View3DTab(QWidget):
                     elif col == 'Yaw':
                         yaw = v
 
-        self._update_aircraft_pose(xe, xn, xu, yaw)
+        self._update_aircraft_pose(xe, xn, xu_draw, yaw)
 
         speed = math.sqrt(
             _interp_data(data, 'SIM2', 'VN', times, t) ** 2 +
