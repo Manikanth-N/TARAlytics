@@ -162,7 +162,12 @@ class View3DTab(QWidget):
 
         self._replay = ReplayControls()
         self._replay.setStyleSheet('background: #13131f;')
-        self._replay.time_changed.connect(self._on_time_changed)
+        # Playback / scrub / step drives the SHARED cursor, so every surface
+        # (Horizon, RC, Timeline, Dock, Map, Plotter) animates with the replay.
+        # The shared cursor then calls View3D.set_time → _on_time_changed for the
+        # 3-D update, so there is a single update path (no double-update, no loop;
+        # ReplayControls.set_time does not re-emit).
+        self._replay.time_changed.connect(self._on_replay_time)
         self._replay.follow_changed.connect(self._on_follow_changed)
         center_layout.addWidget(self._replay)
 
@@ -371,6 +376,15 @@ class View3DTab(QWidget):
             pt(-0.4 * L, -0.3 * L),  # left tail fin
             pt(-0.4 * L,  0.3 * L),  # right tail fin
         ], dtype=np.float32))
+
+    def _on_replay_time(self, t: float):
+        """Replay produced a time. Drive the shared cursor so all surfaces follow;
+        fall back to a direct 3-D update if no AppState is wired (standalone use)."""
+        app = getattr(self._mw, '_app_state', None)
+        if app is not None:
+            app.set_cursor_time(t)        # → cursor_time_changed → View3D.set_time
+        else:
+            self._on_time_changed(t)
 
     def _on_time_changed(self, t: float):
         traj = self._traj
