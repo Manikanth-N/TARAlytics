@@ -14,12 +14,14 @@ from ui.design.tokens import T
 
 # Icon glyphs chosen for broad font coverage. (label -> glyph)
 _ICONS = {
-    'DEBRIEF':  '⊞',
-    'TIMELINE': '⊟',
-    'SIGNALS':  '∿',
-    'REPLAY':   '▶',
-    'VERIFY':   '⬡',
-    'MAP':      '◎',
+    'DEBRIEF':   '⊞',
+    'TIMELINE':  '⊟',
+    'EVENTS':    '⚑',
+    'SITUATION': '✈',
+    'SIGNALS':   '∿',
+    'REPLAY':    '▶',
+    'VERIFY':    '⬡',
+    'MAP':       '◎',
 }
 
 

@@ -174,6 +174,8 @@ class MainWindow(QMainWindow):
         from ui.tab_map_view import MapTab
         from ui.modules.mod_debrief import DebriefModule
         from ui.modules.mod_timeline import TimelineModule
+        from ui.modules.mod_events import EventsModule
+        from ui.modules.mod_situation import SituationModule
 
         self._tab_verify  = VerificationTab(self)
         self._tab_plotter = PlotterTab(self)
@@ -181,22 +183,27 @@ class MainWindow(QMainWindow):
         self._tab_map     = MapTab(self)
         self._mod_debrief = DebriefModule(self._app_state)
         self._mod_timeline = TimelineModule(self._app_state)
+        self._mod_events = EventsModule(self._app_state)
+        self._mod_situation = SituationModule(self._app_state)
 
         # QTabWidget with a hidden tab bar acts as the page stack; the
         # NavigationRail drives page switching. Keeping QTabWidget preserves
-        # all existing references and tests. Timeline sits at index 1 — the
-        # primary investigation/navigation surface.
+        # all existing references and tests. The investigation surfaces
+        # (Timeline / Events / Situation) lead the stack.
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._mod_debrief,  'Debrief')           # index 0
-        self._tabs.addTab(self._mod_timeline, 'Timeline')          # index 1
-        self._tabs.addTab(self._tab_plotter,  'Signal Plotter')    # index 2
-        self._tabs.addTab(self._tab_3d,       '3D Flight View')    # index 3
-        self._tabs.addTab(self._tab_verify,   'Log Verification')  # index 4
-        self._tabs.addTab(self._tab_map,      '2D Map')            # index 5
+        self._tabs.addTab(self._mod_debrief,   'Debrief')           # index 0
+        self._tabs.addTab(self._mod_timeline,  'Timeline')          # index 1
+        self._tabs.addTab(self._mod_events,    'Events')            # index 2
+        self._tabs.addTab(self._mod_situation, 'Situation')         # index 3
+        self._tabs.addTab(self._tab_plotter,   'Signal Plotter')    # index 4
+        self._tabs.addTab(self._tab_3d,        '3D Flight View')    # index 5
+        self._tabs.addTab(self._tab_verify,    'Log Verification')  # index 6
+        self._tabs.addTab(self._tab_map,       '2D Map')            # index 7
         self._tabs.tabBar().hide()
 
         self._nav_rail = NavigationRail(
-            ['DEBRIEF', 'TIMELINE', 'SIGNALS', 'REPLAY', 'VERIFY', 'MAP']
+            ['DEBRIEF', 'TIMELINE', 'EVENTS', 'SITUATION',
+             'SIGNALS', 'REPLAY', 'VERIFY', 'MAP']
         )
         self._nav_rail.module_requested.connect(self._on_module_requested)
 
@@ -238,6 +245,8 @@ class MainWindow(QMainWindow):
         self._app_state.connect_cursor(self._tab_3d.set_time, 'View3D')
         self._app_state.connect_cursor(self._tab_map.set_time, 'MapTab')
         self._app_state.connect_cursor(self._tab_plotter.set_crosshair, 'Plotter')
+        # Event selection highlights its position on the map (flight-path context).
+        self._app_state.event_jumped.connect(self._tab_map.highlight_event)
         self.event_selected.connect(self._on_event_selected)
 
         # Keyboard shortcuts: Space = play/pause, [ / ] = step ±0.5 s
