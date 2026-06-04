@@ -18,6 +18,7 @@ Continuous signals → value_at() (linear interpolation).
 Discrete signals (e.g. MODE) → latest_at() (zero-order hold / step).
 """
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Optional, Iterable, Union
 import math
 import numpy as np
@@ -25,6 +26,23 @@ import numpy as np
 
 # A spec for batch(): either (msg, col) or (label, msg, col).
 Spec = Union[tuple[str, str], tuple[str, str, str]]
+
+
+@dataclass(frozen=True)
+class Sample:
+    """A resolved value plus its provenance — for Snapshots, Evidence Export,
+    and certification. Lightweight: no arrays, just the facts of one lookup."""
+    value: Optional[float]
+    msg: str                       # source message type
+    col: str                       # source field
+    t: float                       # query (cursor) time, seconds
+    interpolated: bool             # True if linearly interpolated between samples
+    sample_t: Optional[float] = None      # actual sample time when not interpolated
+    bracket: Optional[tuple] = None       # (t_lower, t_upper) when interpolated
+
+    @property
+    def ok(self) -> bool:
+        return self.value is not None
 
 
 class SampleService:
@@ -125,6 +143,36 @@ class SampleService:
         if i < 0:
             return None
         return self._finite_or_none(vals[i])
+
+    def sample_at(self, msg: str, col: str, t: float) -> Sample:
+        """
+        Like value_at but returns a Sample with provenance (source msg/field,
+        query time, whether the value was interpolated, and the source sample
+        time(s)). The authoritative record for Snapshots / Evidence Export.
+        Cost is the same as value_at (one binary search); use value_at on the
+        hot per-frame path and sample_at when capturing evidence.
+        """
+        if not self._ensure_times(msg):
+            return Sample(None, msg, col, t, False)
+        times = self._times[msg]
+        vals = self._values(msg, col)
+        if vals is None or len(times) == 0 or t < times[0] or t > times[-1]:
+            return Sample(None, msg, col, t, False)
+        i = int(np.searchsorted(times, t, side='left'))
+        # exact hit or endpoints -> not interpolated
+        if i <= 0:
+            return Sample(self._finite_or_none(vals[0]), msg, col, t, False,
+                          sample_t=float(times[0]))
+        if i >= len(times):
+            return Sample(self._finite_or_none(vals[-1]), msg, col, t, False,
+                          sample_t=float(times[-1]))
+        if times[i] == t:
+            v = self._finite_or_none(vals[i])
+            if v is not None:
+                return Sample(v, msg, col, t, False, sample_t=float(times[i]))
+        v = self.value_at(msg, col, t)
+        return Sample(v, msg, col, t, True,
+                      bracket=(float(times[i - 1]), float(times[i])))
 
     def index_at(self, msg: str, t: float) -> Optional[int]:
         """Index (in time-sorted order) of the sample at or before t — for

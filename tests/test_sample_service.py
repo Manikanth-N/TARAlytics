@@ -88,6 +88,34 @@ class TestLatestAt:
         assert svc.latest_at('MODE', 'ModeNum', 9.0) is None
 
 
+class TestProvenance:
+    def test_interpolated_flag_and_bracket(self, svc):
+        s = svc.sample_at('ATT', 'Roll', 11.5)
+        assert s.value == pytest.approx(15.0)
+        assert s.msg == 'ATT' and s.col == 'Roll' and s.t == 11.5
+        assert s.interpolated is True
+        assert s.bracket == (11.0, 12.0)
+        assert s.sample_t is None
+        assert s.ok is True
+
+    def test_exact_hit_not_interpolated(self, svc):
+        s = svc.sample_at('ATT', 'Roll', 11.0)
+        assert s.interpolated is False
+        assert s.sample_t == 11.0
+
+    def test_endpoint_not_interpolated(self, svc):
+        s = svc.sample_at('ATT', 'Roll', 10.0)
+        assert s.interpolated is False and s.sample_t == 10.0
+
+    def test_out_of_range_provenance(self, svc):
+        s = svc.sample_at('ATT', 'Roll', 99.0)
+        assert s.value is None and s.ok is False and s.msg == 'ATT'
+
+    def test_missing_message_provenance(self, svc):
+        s = svc.sample_at('NOPE', 'Roll', 11.0)
+        assert s.value is None and s.interpolated is False
+
+
 class TestBatchAndRange:
     def test_batch_labels(self, svc):
         out = svc.batch(11.5, [('roll', 'ATT', 'Roll'), ('ATT', 'DesRoll')])
