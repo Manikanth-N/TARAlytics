@@ -58,7 +58,8 @@ class ReplayControls(QWidget):
         self._time_lbl.setStyleSheet('color: #e0e0e0; font-size: 11px;')
         layout.addWidget(self._time_lbl)
 
-        layout.addWidget(QLabel('Speed:'))
+        self._speed_lbl = QLabel('Speed:')
+        layout.addWidget(self._speed_lbl)
         self._speed_btns = []
         for spd in SPEEDS:
             label = f'{spd:g}x'
@@ -81,6 +82,14 @@ class ReplayControls(QWidget):
             lambda s: self.follow_changed.emit(bool(s))
         )
         layout.addWidget(self._follow_cb)
+
+        # The bottom Timeline Transport is the single global play / scrub / speed
+        # control. To avoid duplicate play-pause/speed controls on the Replay screen,
+        # this bar shows only the camera "Follow" toggle; the transport widgets remain
+        # (the 3-D view follows the shared cursor) but are hidden.
+        for w in (self._reset_btn, self._play_btn, self._scrubber, self._time_lbl,
+                  self._speed_lbl, *[b for _, b in self._speed_btns]):
+            w.hide()
 
     def set_range(self, t_min: float, t_max: float):
         self._t_min = t_min
