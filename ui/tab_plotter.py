@@ -248,6 +248,7 @@ class PlotterTab(QWidget):
         btn_clear    = _tb_btn('Clear All')
         btn_csv      = _tb_btn('Export CSV', '#0d6efd')
         btn_png      = _tb_btn('Export PNG', '#198754')
+        btn_copy     = _tb_btn('Copy', '#6f42c1')
 
         btn_autofit.clicked.connect(self._auto_fit)
         btn_zoomin.clicked.connect(self._zoom_in)
@@ -256,12 +257,26 @@ class PlotterTab(QWidget):
         btn_clear.clicked.connect(self._clear_all)
         btn_csv.clicked.connect(self._export_csv)
         btn_png.clicked.connect(self._export_png)
+        btn_copy.clicked.connect(self._copy_to_clipboard)
+        btn_copy.setToolTip('Copy the plot image (print theme) to the clipboard')
+
+        from PyQt6.QtWidgets import QComboBox
+        self._dpi_cb = QComboBox()
+        for label, s in (('1x', 1.0), ('2x', 2.0), ('4x', 4.0)):
+            self._dpi_cb.addItem(label, s)
+        self._dpi_cb.setCurrentIndex(1)   # default 2x for crisp reports
+        self._dpi_cb.setToolTip('Export resolution (DPI multiplier)')
+        self._dpi_cb.setStyleSheet(
+            'QComboBox { background: #2a2a3e; color: #e0e0e0; border: 1px solid #555; '
+            'border-radius: 3px; padding: 2px 6px; font-size: 11px; }')
 
         for b in (btn_autofit, btn_zoomin, btn_zoomout, btn_reset):
             tb.addWidget(b)
         tb.addWidget(_sep())
         for b in (btn_clear, btn_csv, btn_png):
             tb.addWidget(b)
+        tb.addWidget(self._dpi_cb)
+        tb.addWidget(btn_copy)
         tb.addStretch()
         rv.addWidget(toolbar_w)
 
@@ -273,6 +288,18 @@ class PlotterTab(QWidget):
         self._plot.showGrid(x=True, y=True, alpha=0.25)
         self._plot.getAxis('bottom').setLabel('Time (s)')
         self._plot.scene().sigMouseMoved.connect(self._on_mouse_move)
+        # P0: render only what's visible, peak-decimated to screen pixels — visually
+        # lossless, ~40x faster rendering/export with many points.
+        _pi = self._plot.getPlotItem()
+        _pi.setDownsampling(auto=True, mode='peak')
+        _pi.setClipToView(True)
+        # In-plot legend: hidden during live use (the StatsLegend labels signals on
+        # screen), shown only for export so exported images are self-describing.
+        self._legend = _pi.addLegend(offset=(-10, 10),
+                                     labelTextColor='#e0e0e0',
+                                     brush=pg.mkBrush(20, 20, 30, 200),
+                                     pen=pg.mkPen('#3a3a5e'))
+        self._legend.setVisible(False)
 
         self._crosshair_v = pg.InfiniteLine(
             angle=90, movable=False,
@@ -297,6 +324,7 @@ class PlotterTab(QWidget):
         self._range_plot.setMenuEnabled(False)
         self._range_plot.getAxis('left').hide()
         self._range_plot.getAxis('bottom').setLabel('Time (s)')
+        self._range_plot.getPlotItem().setDownsampling(auto=True, mode='peak')
         self._range_region = pg.LinearRegionItem(
             brush=pg.mkBrush(80, 130, 200, 50),
             pen=pg.mkPen('#4a90d9', width=2),
@@ -752,7 +780,10 @@ class PlotterTab(QWidget):
         color = signal_color(self._color_idx)
         self._color_idx += 1
         curve = self._plot.plot(times, values, pen=pg.mkPen(color=color, width=1.5), name=key)
+        curve.setDownsampling(auto=True, method='peak')
+        curve.setClipToView(True)
         rcurve = self._range_plot.plot(times, values, pen=pg.mkPen(color=color, width=1))
+        rcurve.setDownsampling(auto=True, method='peak')
 
         unit = _guess_unit(col)
         self._active_sigs[key] = {
@@ -769,6 +800,10 @@ class PlotterTab(QWidget):
         if sig:
             self._plot.removeItem(sig['curve'])
             self._range_plot.removeItem(sig['range_curve'])
+            try:
+                self._legend.removeItem(sig['curve'])
+            except Exception:
+                pass
             self._stats.remove_signal(key)
 
     def _clear_all(self):
@@ -784,6 +819,10 @@ class PlotterTab(QWidget):
         for key, sig in list(self._active_sigs.items()):
             self._plot.removeItem(sig['curve'])
             self._range_plot.removeItem(sig['range_curve'])
+        try:
+            self._legend.clear()
+        except Exception:
+            pass
         self._active_sigs.clear()
         self._stats.clear()
         self._color_idx = 0
@@ -941,6 +980,7 @@ class PlotterTab(QWidget):
         menu.addAction('Copy visible values', self._copy_visible_values)
         menu.addAction('Export visible → CSV', self._export_csv)
         menu.addAction('Export plot → PNG', self._export_png)
+        menu.addAction('Copy plot image', self._copy_to_clipboard)
         menu.exec(qpoint)
 
     def _copy_visible_values(self):
@@ -991,27 +1031,89 @@ class PlotterTab(QWidget):
             out[k] = padded
         pd.DataFrame(out).to_csv(path, index=False)
 
+    def _export_scale(self) -> float:
+        return float(self._dpi_cb.currentData()) if getattr(self, '_dpi_cb', None) else 2.0
+
+    def render_export_pixmap(self, scale: float = 2.0, light: bool = True):
+        """Render the plot to a pixmap for export: report light theme (white bg,
+        dark labels) + the in-plot legend, at `scale`x DPI. The on-screen plot is
+        restored unchanged. Public so tests/benchmarks can call it."""
+        from PyQt6.QtGui import QPixmap, QPainter, QColor
+        pi = self._plot.getPlotItem()
+        # hide UI-only chrome
+        cross_vis = self._crosshair_v.isVisible() if self._crosshair_v else False
+        tip_vis = self._tooltip.isVisible()
+        if self._crosshair_v:
+            self._crosshair_v.setVisible(False)
+        self._tooltip.setVisible(False)
+        self._legend.setVisible(True)
+        if light:
+            self._plot.setBackground('w')
+            for ax in ('bottom', 'left'):
+                a = pi.getAxis(ax)
+                a.setTextPen('#222222'); a.setPen('#222222')
+            self._legend.setLabelTextColor('#222222')
+            self._legend.setBrush(QColor(255, 255, 255, 220))
+            self._legend.setPen('#999999')
+        self._plot.repaint()
+        sz = self._plot.size()
+        pm = QPixmap(int(sz.width() * scale), int(sz.height() * scale))
+        pm.fill(QColor('white') if light else QColor('#1e1e2e'))
+        p = QPainter(pm)
+        p.scale(scale, scale)
+        self._plot.render(p)
+        p.end()
+        # restore live (dark) theme
+        if light:
+            self._plot.setBackground('#1e1e2e')
+            for ax in ('bottom', 'left'):
+                a = pi.getAxis(ax)
+                a.setTextPen('#e0e0e0'); a.setPen('#e0e0e0')
+            self._legend.setLabelTextColor('#e0e0e0')
+            self._legend.setBrush(QColor(20, 20, 30, 200))
+            self._legend.setPen('#3a3a5e')
+        self._legend.setVisible(False)
+        if self._crosshair_v:
+            self._crosshair_v.setVisible(cross_vis)
+        self._tooltip.setVisible(tip_vis)
+        return pm
+
     def _export_png(self):
         from PyQt6.QtWidgets import QMessageBox
+        if not self._active_sigs:
+            QMessageBox.information(self, 'Nothing to export', 'Add at least one signal first.')
+            return
+        scale = self._export_scale()
         path, _ = QFileDialog.getSaveFileName(
-            self, 'Export Plot as PNG', 'ardupilot_plot.png', 'PNG (*.png)'
+            self, f'Export Plot as PNG ({scale:g}x)', 'taralytics_plot.png', 'PNG (*.png)'
         )
         if not path:
             return
         if not path.lower().endswith('.png'):
             path += '.png'
         try:
-            pixmap = self._plot.grab()
-            if pixmap.isNull():
-                raise RuntimeError('grab() returned null pixmap — widget may not be visible')
-            if not pixmap.save(path, 'PNG'):
+            pixmap = self.render_export_pixmap(scale=scale, light=True)
+            if pixmap.isNull() or not pixmap.save(path, 'PNG'):
                 raise RuntimeError(f'QPixmap.save() failed for path: {path}')
-            QMessageBox.information(self, 'Export Successful', f'Plot saved to:\n{path}')
+            QMessageBox.information(self, 'Export Successful',
+                                   f'Plot saved ({scale:g}x, print theme) to:\n{path}')
         except Exception as e:
             QMessageBox.critical(
                 self, 'Export Failed',
                 f'Could not save PNG:\n{str(e)}\n\nTry a different save location (e.g. Desktop).'
             )
+
+    def _copy_to_clipboard(self):
+        """P1: copy the plot image (print theme, current DPI) to the clipboard."""
+        from PyQt6.QtWidgets import QMessageBox
+        if not self._active_sigs:
+            return
+        pm = self.render_export_pixmap(scale=self._export_scale(), light=True)
+        QApplication.clipboard().setPixmap(pm)
+        if hasattr(self._mw, '_status'):
+            self._mw._status('Plot copied to clipboard.')
+        else:
+            QMessageBox.information(self, 'Copied', 'Plot image copied to clipboard.')
 
     # ── Public API (called from other tabs) ───────────────────────────────────
 
