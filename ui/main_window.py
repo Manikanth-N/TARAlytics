@@ -215,6 +215,9 @@ class MainWindow(QMainWindow):
         from ui.widgets.cursor_dock import CursorDock
         self._cursor_dock = CursorDock(self._app_state)
 
+        from ui.widgets.timeline_transport import TimelineTransport
+        self._transport = TimelineTransport(self._app_state)
+
         body = QWidget()
         body_layout = QHBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
@@ -229,6 +232,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
         layout.addWidget(self._flight_bar)
         layout.addWidget(body, 1)
+        layout.addWidget(self._transport)          # persistent bottom timeline transport
         self.setCentralWidget(central)
 
         self._nav_rail.set_active(0)
