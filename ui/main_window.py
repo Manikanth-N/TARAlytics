@@ -173,17 +173,9 @@ class MainWindow(QMainWindow):
         )
         self._theme_btn.clicked.connect(self._toggle_theme)
         toolbar.addWidget(self._theme_btn)
-
-        # ── Module visibility (gear) ──────────────────────────────────────────
-        self._modules_btn = QPushButton('⚙ Modules')
-        self._modules_btn.setToolTip('Customize navigation — show/hide modules')
-        self._modules_btn.setStyleSheet(
-            'QPushButton { background: #3a3a4e; color: #e0e0e0; border-radius: 4px; '
-            'padding: 4px 8px; font-size: 12px; }'
-            'QPushButton:hover { background: #4a4a6e; }'
-        )
-        self._modules_btn.clicked.connect(self._open_module_manager)
-        toolbar.addWidget(self._modules_btn)
+        # Module visibility is customised exclusively from the navigation-rail gear
+        # (⚙); the former toolbar button and View-menu entry were removed as
+        # redundant.
 
         from ui.tab_verification import VerificationTab
         from ui.tab_plotter import PlotterTab
@@ -262,7 +254,6 @@ class MainWindow(QMainWindow):
         self._overlay.hide()
 
         self._nav_rail.set_active(0)
-        self._build_menubar()
 
         # Debrief module can request navigation to other modules.
         self._mod_debrief.nav_requested.connect(self._on_module_requested)
@@ -349,12 +340,6 @@ class MainWindow(QMainWindow):
             self._on_module_requested(visible_pages[0])
         else:
             self._nav_rail.set_active(self._tabs.currentIndex())
-
-    def _build_menubar(self):
-        view_menu = self.menuBar().addMenu('&View')
-        act = view_menu.addAction('Customize Navigation…')
-        act.setShortcut(QKeySequence('Ctrl+Shift+M'))
-        act.triggered.connect(self._open_module_manager)
 
     def _update_toolbar_labels(self):
         self._bin_label.setText(_trunc(self._bin_path))
