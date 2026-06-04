@@ -19,6 +19,29 @@ def viridis_rgba(t: float, alpha: float = 1.0) -> tuple:
     return (r, g, b, alpha)
 
 
+# Mission-planner altitude ramp: low → high = blue → green → yellow → orange → red.
+# Intuitive for altitude (unlike viridis), matching the on-map legend.
+_ALT_STOPS = [
+    (0.00, (40, 110, 255)),    # lowest  — blue
+    (0.25, (40, 200, 120)),    # low     — green
+    (0.50, (245, 225, 40)),    # medium  — yellow
+    (0.75, (255, 140, 30)),    # high    — orange
+    (1.00, (230, 40, 40)),     # highest — red
+]
+
+
+def altitude_rgb(t: float) -> tuple:
+    """Altitude fraction 0..1 → (r,g,b) 0-255, blue(low) → red(high)."""
+    t = max(0.0, min(1.0, t))
+    for i in range(len(_ALT_STOPS) - 1):
+        t0, c0 = _ALT_STOPS[i]
+        t1, c1 = _ALT_STOPS[i + 1]
+        if t <= t1:
+            f = 0.0 if t1 == t0 else (t - t0) / (t1 - t0)
+            return tuple(int(c0[k] * (1 - f) + c1[k] * f) for k in range(3))
+    return _ALT_STOPS[-1][1]
+
+
 SIGNAL_PALETTE = [
     '#1f77b4',
     '#ff7f0e',
