@@ -13,6 +13,7 @@ from core.basemap.projection import enu_to_lla
 from core.basemap.aviation import AviationData
 from core.basemap.overlays import OverlayManager
 from ui.widgets.map_basemap import MapBasemap
+from ui.widgets.map_decorations import MapDecorations
 
 _MAX_TRACK_PTS = 3000
 
@@ -172,6 +173,10 @@ class MapTab(QWidget):
             lambda on: self._set_overlay('airports', 'show_airports', on))
         self._cb_runways.toggled.connect(
             lambda on: self._set_overlay('runways', 'show_runways', on))
+
+        # Metric scale bar + north arrow (overlay child of the plot, so it is
+        # captured by grab() for PNG/PDF export too).
+        self._decorations = MapDecorations(self._plot)
 
     def _set_overlay(self, layer_id, setting_key, on):
         self._overlays.set_visible(layer_id, on)
