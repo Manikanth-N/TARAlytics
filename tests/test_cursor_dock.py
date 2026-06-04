@@ -166,3 +166,28 @@ class TestAttitudeMatrix:
         qtbot.addWidget(d)
         st.set_cursor_time(10.0)                        # no data loaded
         assert d.context._matrix._cells[('roll', 'pilot')].text() == '—'
+
+    def test_delta_column_shows_magnitude(self, dock):
+        d, st = dock
+        st.set_cursor_time(65.0)                        # demand +20°, actual -5° → 25°
+        cell = d.context._matrix._cells[('roll', 'delta')]
+        assert cell.text() == '25°'
+        assert T.status.critical in cell.styleSheet()   # ≥ 20° → critical
+
+    def test_throttle_row_present_and_populates(self, dock):
+        d, st = dock
+        st.set_cursor_time(40.0)
+        m = d.context._matrix._cells
+        assert ('throttle', 'pilot') in m
+        # RCIN.C3 = 1400 → (1400-1000)/1000 = 0.40 pilot throttle
+        assert m[('throttle', 'pilot')].text() == '0.40'
+        # no CTUN in synthetic data → demand / Δ never fabricated
+        assert m[('throttle', 'demand')].text() == '—'
+        assert m[('throttle', 'delta')].text() == '—'
+
+    def test_snapshot_placeholder_records(self, dock):
+        d, st = dock
+        st.set_cursor_time(42.0)
+        d._on_snapshot()
+        assert len(d._snapshots) == 1
+        assert '42.00' in d._snap_status.text()

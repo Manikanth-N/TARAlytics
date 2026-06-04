@@ -17,8 +17,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QGridLayout, QLabel, QFrame, QHeaderView,
-    QTableWidget, QTableWidgetItem, QSizePolicy, QAbstractItemView,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame, QHeaderView,
+    QTableWidget, QTableWidgetItem, QSizePolicy, QAbstractItemView, QPushButton,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QColor
@@ -68,23 +68,29 @@ def _divider() -> QFrame:
 # ── Attitude matrix ───────────────────────────────────────────────────────────
 
 class AttitudeMatrix(QWidget):
-    """Roll/Pitch/Yaw × Pilot / Demand / Actual. The diagnosis grid: who commanded
-    what (pilot stick), what the controller asked for (desired attitude), and what
-    the aircraft did (actual attitude). Demand↔Actual divergence is colour-flagged."""
+    """Roll/Pitch/Yaw/Throttle × Pilot / Demand / Actual + Δ. The diagnosis grid:
+    who commanded what (pilot stick), what the controller asked for (demand), what
+    the aircraft did (actual), and the explicit divergence magnitude (Δ), colour-
+    flagged. Throttle compares pilot stick / controller throttle (CTUN.ThO) / motor
+    output (RCOU)."""
 
-    _AXES = [('R', 'roll', 'DesRoll', 'Roll'),
-             ('P', 'pitch', 'DesPitch', 'Pitch'),
-             ('Y', 'yaw', 'DesYaw', 'Yaw')]
+    # (symbol, axis, kind) — kind 'angle' uses ATT.Des*/ATT.*; 'throttle' uses
+    # pilot stick / CTUN.ThO / servo output, all 0..1.
+    _ROWS = [('R', 'roll', 'angle'), ('P', 'pitch', 'angle'),
+             ('Y', 'yaw', 'angle'), ('T', 'throttle', 'throttle')]
+    _ANGLE_COLS = {'roll': ('DesRoll', 'Roll'), 'pitch': ('DesPitch', 'Pitch'),
+                   'yaw': ('DesYaw', 'Yaw')}
+    _THR_WARN, _THR_CRIT = 0.10, 0.25
 
     def __init__(self, app_state, parent=None):
         super().__init__(parent)
         self._app = app_state
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(T.spacing.px8)
+        grid.setHorizontalSpacing(T.spacing.px4)
         grid.setVerticalSpacing(3)
 
-        for c, head in enumerate(('', 'PILOT', 'DEMAND', 'ACTUAL')):
+        for c, head in enumerate(('', 'PILOT', 'DEMAND', 'ACTUAL', 'Δ')):
             lbl = QLabel(head)
             lbl.setFont(_brand(T.size.xs, T.weight.bold))
             lbl.setStyleSheet(f'color: {T.text.muted};')
@@ -92,21 +98,20 @@ class AttitudeMatrix(QWidget):
             grid.addWidget(lbl, 0, c)
 
         self._cells: dict = {}
-        for r, (sym, axis, _des, _act) in enumerate(self._AXES, start=1):
+        for r, (sym, axis, _kind) in enumerate(self._ROWS, start=1):
             ax = QLabel(sym)
             ax.setFont(_brand(T.size.md, T.weight.bold))
             ax.setStyleSheet(f'color: {T.text.secondary};')
             grid.addWidget(ax, r, 0)
-            for c, kind in enumerate(('pilot', 'demand', 'actual'), start=1):
+            for c, kind in enumerate(('pilot', 'demand', 'actual', 'delta'), start=1):
                 v = QLabel('—')
-                v.setFont(_mono(T.size.sm))
+                v.setFont(_mono(T.size.xs if kind == 'delta' else T.size.sm))
                 v.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 v.setStyleSheet(f'color: {T.text.data};')
                 grid.addWidget(v, r, c)
                 self._cells[(axis, kind)] = v
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(2, 1)
-        grid.setColumnStretch(3, 1)
+        for c in (1, 2, 3):
+            grid.setColumnStretch(c, 1)
 
     def refresh(self, t: float):
         svc = self._app.sample_service
@@ -114,27 +119,50 @@ class AttitudeMatrix(QWidget):
         if svc is None:
             self._blank(); return
         pilot = rc.pilot_input(svc, t) if rc is not None else None
-        for sym, axis, des_col, act_col in self._AXES:
-            pv = getattr(pilot, axis, None) if pilot is not None else None
-            dv = svc.value_at('ATT', des_col, t)
-            av = svc.value_at('ATT', act_col, t)
-            self._cells[(axis, 'pilot')].setText('—' if pv is None else f'{pv:+.2f}')
-            self._cells[(axis, 'demand')].setText('—' if dv is None else f'{dv:+.0f}°')
-            cell = self._cells[(axis, 'actual')]
-            cell.setText('—' if av is None else f'{av:+.0f}°')
-            # divergence flag
-            colour = T.text.data
-            if dv is not None and av is not None:
-                diff = abs(_angle_diff(av, dv))
-                if diff >= _DIVERGE_CRIT:
-                    colour = T.status.critical
-                elif diff >= _DIVERGE_WARN:
-                    colour = T.status.caution
-            cell.setStyleSheet(f'color: {colour};')
+        servo = rc.servo_output(svc, t) if rc is not None else None
+        for sym, axis, kind in self._ROWS:
+            if kind == 'angle':
+                self._refresh_angle(svc, pilot, axis, t)
+            else:
+                self._refresh_throttle(svc, pilot, servo, axis, t)
+
+    def _refresh_angle(self, svc, pilot, axis, t):
+        des_col, act_col = self._ANGLE_COLS[axis]
+        pv = getattr(pilot, axis, None) if pilot is not None else None
+        dv = svc.value_at('ATT', des_col, t)
+        av = svc.value_at('ATT', act_col, t)
+        self._cells[(axis, 'pilot')].setText('—' if pv is None else f'{pv:+.2f}')
+        self._cells[(axis, 'demand')].setText('—' if dv is None else f'{dv:+.0f}°')
+        self._cells[(axis, 'actual')].setText('—' if av is None else f'{av:+.0f}°')
+        diff = abs(_angle_diff(av, dv)) if (dv is not None and av is not None) else None
+        self._set_delta(axis, diff, '{:.0f}°', _DIVERGE_WARN, _DIVERGE_CRIT)
+
+    def _refresh_throttle(self, svc, pilot, servo, axis, t):
+        pv = getattr(pilot, 'throttle', None) if pilot is not None else None
+        av = getattr(servo, 'throttle', None) if servo is not None else None
+        dv = svc.value_at('CTUN', 'ThO', t)   # controller throttle 0..1
+        self._cells[(axis, 'pilot')].setText('—' if pv is None else f'{pv:.2f}')
+        self._cells[(axis, 'demand')].setText('—' if dv is None else f'{dv:.2f}')
+        self._cells[(axis, 'actual')].setText('—' if av is None else f'{av:.2f}')
+        diff = abs(dv - av) if (dv is not None and av is not None) else None
+        self._set_delta(axis, diff, '{:.2f}', self._THR_WARN, self._THR_CRIT)
+
+    def _set_delta(self, axis, diff, fmt, warn, crit):
+        cell = self._cells[(axis, 'delta')]
+        act = self._cells[(axis, 'actual')]
+        if diff is None:
+            cell.setText('—'); colour = T.text.muted
+        else:
+            cell.setText(fmt.format(diff))
+            colour = (T.status.critical if diff >= crit
+                      else T.status.caution if diff >= warn else T.status.nominal)
+        cell.setStyleSheet(f'color: {colour};')
+        act.setStyleSheet(f'color: {colour if diff is not None and diff >= warn else T.text.data};')
 
     def _blank(self):
-        for cell in self._cells.values():
-            cell.setText('—'); cell.setStyleSheet(f'color: {T.text.data};')
+        for (axis, kind), cell in self._cells.items():
+            cell.setText('—')
+            cell.setStyleSheet(f'color: {T.text.muted if kind == "delta" else T.text.data};')
 
 
 # ── Context panel ──────────────────────────────────────────────────────────────
@@ -409,18 +437,46 @@ class CursorDock(QWidget):
                                 T.spacing.px12, T.spacing.px12)
         root.setSpacing(T.spacing.px8)
 
+        # Snapshot action (placeholder — captures the cursor moment; export TBD).
+        snap_row = QHBoxLayout(); snap_row.setSpacing(T.spacing.px8)
+        self._snap_btn = QPushButton('★ Snapshot')
+        self._snap_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._snap_btn.setToolTip('Capture the current cursor moment '
+                                  '(Investigation Snapshot — placeholder)')
+        self._snap_btn.setStyleSheet(
+            f'QPushButton {{ background: {T.surface.card}; color: {T.brand.blue_bright}; '
+            f'border: 1px solid {T.border.active}; border-radius: 3px; '
+            f'padding: 3px 10px; font-family: {T.font.brand}; '
+            f'font-size: {T.size.sm}px; font-weight: {T.weight.semibold}; }} '
+            f'QPushButton:hover {{ background: {T.surface.elevated}; }}')
+        self._snap_btn.clicked.connect(self._on_snapshot)
+        self._snap_status = QLabel('')
+        self._snap_status.setFont(_mono(T.size.xs))
+        self._snap_status.setStyleSheet(f'color: {T.text.muted};')
+        snap_row.addWidget(self._snap_btn)
+        snap_row.addWidget(self._snap_status, 1)
+        root.addLayout(snap_row)
+
         self._context = CursorContextPanel(app_state)
         root.addWidget(self._context)
         root.addWidget(_divider())
         self._values = ValuesAtCursorTable(app_state)
         root.addWidget(self._values, 1)
 
+        self._snapshots: list = []     # placeholder store; export wired in a later step
         app_state.connect_cursor(self._refresh, 'CursorDock')
         app_state.data_changed.connect(lambda *_: self._refresh(app_state.cursor_time))
 
     def _refresh(self, t: float):
         self._context.refresh(t)
         self._values.refresh(t)
+
+    def _on_snapshot(self):
+        """Placeholder Investigation Snapshot: records the cursor time + a count.
+        Full provenance capture / evidence export is a later step."""
+        t = self._app.cursor_time
+        self._snapshots.append(t)
+        self._snap_status.setText(f'#{len(self._snapshots)} @ {t:.2f}s · saved (placeholder)')
 
     # exposed for tests
     @property
