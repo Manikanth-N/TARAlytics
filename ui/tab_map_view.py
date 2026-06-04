@@ -1,14 +1,15 @@
 import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, QCheckBox,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtGui import QPainter, QColor, QLinearGradient, QPen, QFont
 
 from core.gps_converter import best_trajectory
 from core.colors import altitude_rgb
 from core.event_extractor import EventExtractor
+from ui.widgets.map_basemap import MapBasemap
 
 _MAX_TRACK_PTS = 3000
 
@@ -92,6 +93,28 @@ class MapTab(QWidget):
         btn_fit.clicked.connect(self._fit_view)
         tb.addWidget(btn_fit)
 
+        # ── Basemap controls (Phase 1) ──────────────────────────────────────
+        # Basemap style + layer toggles. Airports/Runways are wired to the overlay
+        # registry in M3; Labels is a Phase-1 placeholder (Streets=labels visible,
+        # Minimal=labels hidden) whose internal implementation Phase 2 replaces
+        # without changing this UI.
+        self._settings = QSettings('TARAlyticsAnalyzer', 'Map')
+        tb.addWidget(self._lbl('Basemap'))
+        self._basemap_cb = QComboBox()
+        self._basemap_cb.addItems(['Streets', 'Minimal', 'Off'])
+        self._basemap_cb.setStyleSheet(
+            'QComboBox { background: #495057; color: white; border-radius: 3px; '
+            'padding: 2px 6px; font-size: 11px; }')
+        tb.addWidget(self._basemap_cb)
+        self._cb_labels = self._toggle('Labels', True)
+        self._cb_airports = self._toggle('Airports', True)
+        self._cb_runways = self._toggle('Runways', True)
+        for w in (self._cb_labels, self._cb_airports, self._cb_runways):
+            tb.addWidget(w)
+        self._restore_basemap_settings()
+        self._basemap_cb.currentTextChanged.connect(self._on_basemap_style)
+        self._cb_labels.toggled.connect(self._on_labels_toggled)
+
         legend = QLabel(
             '<span style="color:#ffd700">★</span> Home  '
             '<span style="color:#28a745">●</span> Start  '
@@ -135,8 +158,57 @@ class MapTab(QWidget):
         )
         self._plot.addItem(self._placeholder)
 
+        # Basemap backdrop (z = -1, beneath everything). Built lazily on data load.
+        self._basemap = MapBasemap(self._plot)
+        self._apply_basemap_style()
+
+    # ── basemap toolbar helpers ─────────────────────────────────────────────
+    def _lbl(self, text):
+        l = QLabel(text)
+        l.setStyleSheet('color: #aaaacc; font-size: 11px;')
+        return l
+
+    def _toggle(self, text, checked):
+        cb = QCheckBox(text)
+        cb.setChecked(checked)
+        cb.setStyleSheet('QCheckBox { color: #cfd6e4; font-size: 11px; }')
+        return cb
+
+    def _restore_basemap_settings(self):
+        style = self._settings.value('basemap_style', 'Streets')
+        if style not in ('Streets', 'Minimal', 'Off'):
+            style = 'Streets'
+        self._basemap_cb.setCurrentText(style)
+        self._cb_labels.setChecked(style != 'Minimal')
+        self._cb_airports.setChecked(
+            self._settings.value('show_airports', True, type=bool))
+        self._cb_runways.setChecked(
+            self._settings.value('show_runways', True, type=bool))
+
+    def _on_basemap_style(self, _text):
+        # keep the Labels placeholder in sync with Streets/Minimal (Phase 1)
+        style = self._basemap_cb.currentText()
+        self._cb_labels.blockSignals(True)
+        self._cb_labels.setChecked(style == 'Streets')
+        self._cb_labels.blockSignals(False)
+        self._settings.setValue('basemap_style', style)
+        self._apply_basemap_style()
+
+    def _on_labels_toggled(self, on):
+        # Phase 1: Labels drives Streets/Minimal; the dropdown follows.
+        if self._basemap_cb.currentText() != 'Off':
+            self._basemap_cb.blockSignals(True)
+            self._basemap_cb.setCurrentText('Streets' if on else 'Minimal')
+            self._basemap_cb.blockSignals(False)
+            self._settings.setValue('basemap_style', self._basemap_cb.currentText())
+            self._apply_basemap_style()
+
+    def _apply_basemap_style(self):
+        self._basemap.set_style(self._basemap_cb.currentText().lower())
+
     def update_data(self, data: dict):
         self._plot.clear()
+        self._basemap.reset()          # plot.clear() removed backdrop items; drop refs
         self._pos_item = None
         self._evt_highlight = None
         self._alt_legend.clear()
@@ -152,8 +224,13 @@ class MapTab(QWidget):
         traj = best_trajectory(data)
         self._traj = traj
         if traj is None:
+            self._basemap.set_origin(0.0, 0.0)      # no geographic backdrop
             self._plot.addItem(self._placeholder)
             return
+
+        # Position the basemap backdrop on this flight's home origin.
+        self._basemap.set_origin(
+            float(traj.get('origin_lat', 0.0)), float(traj.get('origin_lon', 0.0)))
 
         east  = traj['east']
         north = traj['north']
