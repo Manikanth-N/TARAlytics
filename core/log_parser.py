@@ -96,6 +96,7 @@ def _build_fmt_struct(fmt_str: str):
 
 class ParserSignals(QObject):
     progress = pyqtSignal(int)
+    stage = pyqtSignal(str)        # human-readable current parse stage
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
@@ -148,11 +149,19 @@ class DataFlashParser:
     FMT_BODY_SIZE = 86
     FMT_RECORD_SIZE = 3 + FMT_BODY_SIZE   # 89
 
+    def _stage(self, signals, text, pct=None):
+        if signals:
+            signals.stage.emit(text)
+            if pct is not None:
+                signals.progress.emit(pct)
+
     def parse(self, filepath: str, signals: Optional[ParserSignals] = None) -> dict:
+        self._stage(signals, 'Reading log file', 2)
         with open(filepath, 'rb') as f:
             raw = f.read()
 
         if raw[:2] == self.SIGNED_MAGIC:
+            self._stage(signals, 'Extracting signed data', 8)
             # Secure log: parse ONLY the data ranges referenced by the hash-chain
             # chunk records, excluding the interleaved 44-byte CHUNK records and
             # the END record. Otherwise chunk-magic bytes ("1HCH") leak into
@@ -178,6 +187,7 @@ class DataFlashParser:
         if data is not raw:
             raw = None
 
+        self._stage(signals, 'Discovering message formats', 16)
         fmt_map = {}
         self._pass1_collect_fmt(data, fmt_map)
 
@@ -185,7 +195,9 @@ class DataFlashParser:
         # message type with a structured-dtype numpy view (no per-record Python
         # objects). Scaling, instance routing, and field-bounds filtering are
         # applied exactly as before.
+        self._stage(signals, 'Decoding flight records', 20)
         offsets = self._collect_offsets(data, fmt_map, signals)
+        self._stage(signals, 'Building data tables', 92)
         result = {}
         for type_id, off in offsets.items():
             entry = fmt_map.get(type_id)
@@ -197,8 +209,7 @@ class DataFlashParser:
                     result[dict_key] = df
             except Exception:
                 pass
-        if signals:
-            signals.progress.emit(100)
+        self._stage(signals, 'Finalizing', 100)
         return dict(sorted(result.items()))
 
     # ── T2 vectorized decode ──────────────────────────────────────────────────

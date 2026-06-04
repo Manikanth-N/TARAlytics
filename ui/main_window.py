@@ -239,6 +239,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._transport)          # persistent bottom timeline transport
         self.setCentralWidget(central)
 
+        from ui.widgets.mission_overlay import MissionProcessingOverlay
+        self._overlay = MissionProcessingOverlay(central)
+        self._overlay.hide()
+
         self._nav_rail.set_active(0)
 
         # Debrief module can request navigation to other modules.
@@ -328,9 +332,13 @@ class MainWindow(QMainWindow):
 
         self._load_key()
 
+        self._overlay.start()      # branded mission-processing overlay
+
         signals = ParserSignals()
         signals.progress.connect(self._progress.setValue)
-        signals.progress.connect(lambda v: self._status(f'Parsing: {v}%') if 0 < v < 100 else None)
+        signals.progress.connect(self._overlay.set_progress)
+        signals.stage.connect(self._overlay.set_stage)
+        signals.stage.connect(self._status)
         signals.finished.connect(self._on_parse_done)
         signals.error.connect(self._on_parse_error)
 
@@ -344,12 +352,19 @@ class MainWindow(QMainWindow):
         self._parse_btn.setText('▶ Parse Log')
         self._status(f'Parsed {len(data)} message types.')
         self.data_ready.emit(data)
+        self._overlay.mission_ready()      # holds, then fades to reveal the loaded UI
 
     def _on_parse_error(self, msg: str):
         self._progress.setVisible(False)
         self._parse_btn.setEnabled(True)
         self._parse_btn.setText('▶ Parse Log')
         self._status(f'Parse error: {msg}')
+        self._overlay.fail()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if getattr(self, '_overlay', None) is not None and self._overlay.isVisible():
+            self._overlay.resize(self._overlay.parent().size())
 
     def _on_data_ready(self, data: dict):
         self._tab_verify.update_data(data, self._raw_bytes)

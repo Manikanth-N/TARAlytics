@@ -183,3 +183,46 @@ class TestSavedLayouts:
         from ui.modules.mod_workspace import BUILTIN_LAYOUTS
         assert name in BUILTIN_LAYOUTS                  # would be rejected
         assert ws._custom == before
+
+
+class TestMissionOverlay:
+    def test_parser_emits_stages(self):
+        from core.log_parser import ParserSignals, DataFlashParser
+        sigs = ParserSignals()
+        stages, progress = [], []
+        sigs.stage.connect(stages.append)
+        sigs.progress.connect(progress.append)
+        DataFlashParser().parse('logs/00000002.BIN', sigs)
+        assert 'Reading log file' in stages
+        assert any('Decoding' in s for s in stages)
+        assert progress and progress[-1] == 100
+
+    def test_overlay_lifecycle(self, qtbot):
+        from ui.widgets.mission_overlay import MissionProcessingOverlay
+        ov = MissionProcessingOverlay(); qtbot.addWidget(ov)
+        ov.start()
+        assert ov.isVisible() and ov._phase == 'processing'
+        ov.set_stage('Decoding flight records'); ov.set_progress(50)
+        assert ov._target == 50.0
+        for _ in range(60):
+            ov._tick()
+        assert ov._progress == pytest.approx(50.0, abs=1.0)
+        ov.set_progress(30)            # progress never goes backwards
+        assert ov._target == 50.0
+        ov.mission_ready()
+        assert ov._phase == 'ready' and ov._target == 100.0
+
+    def test_overlay_done_signal_and_hide(self, qtbot):
+        from ui.widgets.mission_overlay import MissionProcessingOverlay
+        ov = MissionProcessingOverlay(); qtbot.addWidget(ov)
+        ov.start()
+        done = []
+        ov.done.connect(lambda: done.append(1))
+        ov._finish()                    # the end of the fade
+        assert not ov.isVisible() and done
+
+    def test_overlay_fail_hides(self, qtbot):
+        from ui.widgets.mission_overlay import MissionProcessingOverlay
+        ov = MissionProcessingOverlay(); qtbot.addWidget(ov)
+        ov.start(); ov.fail()
+        assert not ov.isVisible()
