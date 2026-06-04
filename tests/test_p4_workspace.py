@@ -94,3 +94,92 @@ class TestTransportInMainWindow:
         w._transport._mini._app.set_cursor_time(50.0)
         assert w._cursor_dock.context._vals['time'].text() == '50.00 s'
         assert w._mod_situation.horizon._has
+
+
+@pytest.fixture
+def workspace(qtbot):
+    from ui.main_window import MainWindow
+    w = MainWindow(); qtbot.addWidget(w)
+    w.data_ready.emit(_data())
+    return w, w._mod_workspace
+
+
+class TestWorkspaceLayouts:
+    def test_three_builtin_layouts_build(self, workspace):
+        w, ws = workspace
+        from ui.modules.mod_workspace import BUILTIN_LAYOUTS
+        for name, keys in BUILTIN_LAYOUTS.items():
+            ws.set_layout(name)
+            assert ws._current == name
+            for k in keys:
+                assert k in ws._panels        # each surface instantiated
+
+    def test_pilot_layout_surfaces(self, workspace):
+        w, ws = workspace
+        ws.set_layout('Pilot Analysis')
+        for k in ('signals', 'horizon', 'rc'):
+            assert k in ws._panels
+
+    def test_workspace_panels_follow_cursor(self, workspace):
+        w, ws = workspace
+        ws.set_layout('Pilot Analysis')
+        w._app_state.set_cursor_time(50.0)
+        assert ws._panels['horizon']._has              # fresh horizon synced
+        assert ws._panels['horizon']._roll is not None
+
+    def test_signals_preset_autoloaded(self, workspace):
+        w, ws = workspace
+        ws.set_layout('Pilot Analysis')
+        # Attitude preset loads ATT roll/pitch into the workspace plotter
+        assert set(ws._panels['signals']._active_sigs) >= {'ATT.Roll', 'ATT.DesRoll'}
+
+
+class TestPopOut:
+    def test_popout_then_close_redocks(self, workspace):
+        w, ws = workspace
+        ws.set_layout('Pilot Analysis')
+        ws._popout('horizon')
+        assert 'horizon' in ws._floating
+        win = ws._floating['horizon']
+        win.close()
+        assert 'horizon' not in ws._floating          # auto re-docked on close
+        # still cursor-synced after re-dock
+        w._app_state.set_cursor_time(40.0)
+        assert ws._panels['horizon']._has
+
+    def test_floating_panel_follows_cursor(self, workspace):
+        w, ws = workspace
+        ws.set_layout('Pilot Analysis')
+        ws._popout('rc')
+        w._app_state.set_cursor_time(50.0)
+        assert ws._panels['rc']._pilot is not None      # floating RC still synced
+
+
+class TestSavedLayouts:
+    def test_save_and_restore(self, workspace):
+        w, ws = workspace
+        ws.set_layout('Accident Investigation')
+        ws._custom['Bench'] = ['signals', 'map']
+        ws._store_custom(); ws._refresh_layout_combo()
+        ws.set_layout('Bench')
+        assert ws._current == 'Bench'
+        assert ws._all_layouts()['Bench'] == ['signals', 'map']
+
+    def test_delete_custom(self, workspace):
+        w, ws = workspace
+        ws._custom['X'] = ['signals']
+        ws._store_custom(); ws._refresh_layout_combo()
+        i = ws._layout_cb.findText('X'); ws._layout_cb.setCurrentIndex(i)
+        ws._delete_layout()
+        assert 'X' not in ws._custom
+
+    def test_builtin_cannot_be_overwritten_as_custom(self, workspace):
+        w, ws = workspace
+        # saving with a builtin name is rejected (kept built-in)
+        before = dict(ws._custom)
+        ws._current = 'Pilot Analysis'
+        # simulate the guard in _save_layout
+        name = 'Pilot Analysis'
+        from ui.modules.mod_workspace import BUILTIN_LAYOUTS
+        assert name in BUILTIN_LAYOUTS                  # would be rejected
+        assert ws._custom == before

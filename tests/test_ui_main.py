@@ -24,7 +24,7 @@ class TestMainWindowStructure:
         # is hidden — navigation is driven by the NavigationRail.
         tabs = main_window._tabs
         assert tabs is not None
-        assert tabs.count() == 9
+        assert tabs.count() == 10
         assert tabs.tabBar().isHidden()
 
     def test_tab_names(self, main_window):

@@ -202,11 +202,15 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._tab_verify,    'Log Verification')  # index 6
         self._tabs.addTab(self._tab_map,       '2D Map')            # index 7
         self._tabs.addTab(self._mod_evidence,  'Evidence')          # index 8
+
+        from ui.modules.mod_workspace import WorkspaceModule
+        self._mod_workspace = WorkspaceModule(self._app_state, self)
+        self._tabs.addTab(self._mod_workspace, 'Workspace')         # index 9
         self._tabs.tabBar().hide()
 
         self._nav_rail = NavigationRail(
             ['DEBRIEF', 'TIMELINE', 'EVENTS', 'SITUATION',
-             'SIGNALS', 'REPLAY', 'VERIFY', 'MAP', 'EVIDENCE']
+             'SIGNALS', 'REPLAY', 'VERIFY', 'MAP', 'EVIDENCE', 'WORKSPACE']
         )
         self._nav_rail.module_requested.connect(self._on_module_requested)
 

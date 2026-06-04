@@ -23,6 +23,7 @@ _ICONS = {
     'VERIFY':    '⬡',
     'MAP':       '◎',
     'EVIDENCE':  '🗎',
+    'WORKSPACE': '▦',
 }
 
 
