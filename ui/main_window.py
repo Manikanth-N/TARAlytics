@@ -220,10 +220,14 @@ class MainWindow(QMainWindow):
 
         self.data_ready.connect(self._on_data_ready)
 
-        # Cross-tab synchronisation
-        self._tab_plotter.crosshair_moved.connect(self.plotter_cursor_moved)
-        self._tab_plotter.crosshair_moved.connect(self._tab_3d.set_time)
-        self._tab_plotter.crosshair_moved.connect(self._tab_map.set_time)
+        # Cross-tab synchronisation via the shared cursor (AppState).
+        # The plotter crosshair drives the one cursor; every surface follows it.
+        # The broadcast guard in AppState prevents feedback loops.
+        self._tab_plotter.crosshair_moved.connect(self._app_state.set_cursor_time)
+        self._tab_plotter.crosshair_moved.connect(self.plotter_cursor_moved)  # legacy passthrough
+        self._app_state.cursor_time_changed.connect(self._tab_3d.set_time)
+        self._app_state.cursor_time_changed.connect(self._tab_map.set_time)
+        self._app_state.cursor_time_changed.connect(self._tab_plotter.set_crosshair)
         self.event_selected.connect(self._on_event_selected)
 
         # Keyboard shortcuts: Space = play/pause, [ / ] = step ±0.5 s

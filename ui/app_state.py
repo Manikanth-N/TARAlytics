@@ -66,6 +66,14 @@ class AppState(QObject):
         self._meta:       FlightMeta    = FlightMeta()
         self._verify:     VerifyResult  = VerifyResult()
 
+        # ── shared cursor backbone ──────────────────────────────────────────
+        self._cursor_time: float = 0.0
+        self._broadcasting: bool = False      # loop-prevention guard
+        # lazy services, rebuilt on data_changed; shared by every cursor surface
+        self._sample_service = None
+        self._timeline_model = None
+        self._rc_model = None
+
     # ── Read-only properties ───────────────────────────────────────────────
 
     @property
@@ -92,6 +100,11 @@ class AppState(QObject):
         self._raw_bytes = raw_bytes
         self._bin_path = bin_path
         self._meta = self._extract_meta(data, raw_bytes, bin_path)
+        # Invalidate lazy services and reset the cursor for the new log.
+        self._sample_service = None
+        self._timeline_model = None
+        self._rc_model = None
+        self._cursor_time = 0.0
         self.meta_changed.emit(self._meta)
         self.data_changed.emit(data)
 
@@ -120,13 +133,63 @@ class AppState(QObject):
         self._key_path = key_path
 
     def set_cursor_time(self, t_absolute: float):
-        self.cursor_time_changed.emit(t_absolute)
+        """
+        Move the one shared cursor and broadcast it to every subscriber.
+
+        Loop-prevention: a subscriber whose cursor_time_changed handler calls
+        set_cursor_time again (e.g. a widget that snaps the value) is ignored
+        while a broadcast is in flight, so there is no feedback loop. The store
+        is updated and the signal emitted exactly once per user interaction.
+        """
+        if self._broadcasting:
+            return
+        self._cursor_time = float(t_absolute)
+        self._broadcasting = True
+        try:
+            self.cursor_time_changed.emit(self._cursor_time)
+        finally:
+            self._broadcasting = False
+
+    @property
+    def cursor_time(self) -> float:
+        """Last cursor time — for surfaces that subscribe late or need to read
+        the current position without waiting for the next move."""
+        return self._cursor_time
 
     def jump_to_event(self, t_absolute: float):
-        self.event_jumped.emit(t_absolute)
+        """Event selection: record + emit event_jumped and move the shared cursor
+        in one operation, so all surfaces update from a single user action."""
+        self.event_jumped.emit(float(t_absolute))
+        self.set_cursor_time(t_absolute)
 
     def request_module(self, index: int):
         self.module_requested.emit(index)
+
+    # ── Lazy shared services (built once per log, on first access) ───────────
+
+    @property
+    def sample_service(self):
+        """Shared SampleService over the current data (value-at-cursor engine)."""
+        if self._sample_service is None and self._data:
+            from core.sample_service import SampleService
+            self._sample_service = SampleService(self._data)
+        return self._sample_service
+
+    @property
+    def timeline_model(self):
+        """Shared TimelineModel over the current data (phases/modes/flights/etc.)."""
+        if self._timeline_model is None and self._data:
+            from core.timeline_model import TimelineModel
+            self._timeline_model = TimelineModel(self._data)
+        return self._timeline_model
+
+    @property
+    def rc_model(self):
+        """Shared RCModel over the current data (semantic pilot intent)."""
+        if self._rc_model is None and self._data:
+            from core.rc_model import RCModel
+            self._rc_model = RCModel.from_data(self._data)
+        return self._rc_model
 
     # ── Metadata extraction ────────────────────────────────────────────────
 
