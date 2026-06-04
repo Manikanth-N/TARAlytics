@@ -207,6 +207,11 @@ def extract_signed_data(raw: bytes) -> Optional[bytes]:
     pos = 64  # skip signed header
     parts: list = []
     found = False
+    # T1: jump to the next CHUNK record via C-level memchr instead of scanning
+    # byte-by-byte. Only CHUNK records contribute to the output, and they are
+    # visited in the same order with the same bounds checks, so the result is
+    # byte-identical to the previous pos+=1 scan (END/data gaps contribute nothing).
+    chunk_magic_b = struct.pack('<I', CHUNK_MAGIC)
     while pos <= n - 4:
         m = struct.unpack_from('<I', raw, pos)[0]
         if m == CHUNK_MAGIC:
@@ -223,7 +228,10 @@ def extract_signed_data(raw: bytes) -> Optional[bytes]:
                 break
             pos += END_RECORD_SIZE
         else:
-            pos += 1
+            nxt = raw.find(chunk_magic_b, pos + 1)
+            if nxt < 0:
+                break
+            pos = nxt
     return b''.join(parts) if found else None
 
 

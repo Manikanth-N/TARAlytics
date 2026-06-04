@@ -207,18 +207,14 @@ class DataFlashParser:
         return dict(sorted(result.items()))
 
     def _pass1_collect_fmt(self, data: bytes, fmt_map: dict):
-        i = 0
         n = len(data)
-        while i < n - 2:
-            if data[i] != self.HEAD1 or data[i + 1] != self.HEAD2:
-                i += 1
-                continue
-            if i + 3 > n:
-                break
-            msg_type = data[i + 2]
-            if msg_type != self.FMT_TYPE:
-                i += 1
-                continue
+        # T1: jump directly to each FMT header (A3 95 80) via C-level memchr instead
+        # of scanning byte-by-byte. The previous scan jumped FMT_RECORD_SIZE after
+        # every A3 95 80 it saw, so find()ing the next header at i+FMT_RECORD_SIZE
+        # visits the identical set of candidate positions → byte-identical fmt_map.
+        hdr = bytes([self.HEAD1, self.HEAD2, self.FMT_TYPE])
+        i = data.find(hdr, 0)
+        while i != -1:
             body_start = i + 3
             if body_start + self.FMT_BODY_SIZE > n:
                 break
@@ -247,7 +243,7 @@ class DataFlashParser:
                     fmt_map[type_id] = entry
             except Exception:
                 pass
-            i += self.FMT_RECORD_SIZE
+            i = data.find(hdr, i + self.FMT_RECORD_SIZE)
 
     def _pass2_parse_all(self, data: bytes, fmt_map: dict, records: dict,
                          signals: Optional[ParserSignals],
