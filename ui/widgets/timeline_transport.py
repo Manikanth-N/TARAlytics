@@ -226,6 +226,11 @@ class TimelineTransport(QWidget):
             lambda i: setattr(self, '_speed', self._speed_cb.itemData(i)))
         btns.addWidget(self._reset_btn); btns.addWidget(self._play_btn)
         btns.addWidget(self._speed_cb)
+        # Playback (play/pause/reset/speed) lives in the Replay tab. To avoid duplicate
+        # play controls on the main screen, this persistent bottom bar keeps only the
+        # whole-flight scrub strip + time readout; the control buttons are hidden.
+        for w in (self._reset_btn, self._play_btn, self._speed_cb):
+            w.hide()
         self._time_lbl = QLabel('0.00 s')
         self._time_lbl.setFont(QFont(T.font.data, T.size.xs))
         self._time_lbl.setStyleSheet(f'color: {T.text.primary};')

@@ -274,16 +274,15 @@ class MainWindow(QMainWindow):
         self._app_state.event_jumped.connect(self._tab_map.highlight_event)
         self.event_selected.connect(self._on_event_selected)
 
-        # Keyboard shortcuts drive the single global transport: Space = play/pause,
-        # [ / ] = step ±0.5 s on the shared cursor.
+        # Keyboard shortcuts: Space = play/pause, [ / ] = step ±0.5 s (Replay controls)
         QShortcut(QKeySequence(Qt.Key.Key_Space), self).activated.connect(
-            self._transport.toggle_play
+            self._tab_3d._replay.toggle_play
         )
         QShortcut(QKeySequence('['), self).activated.connect(
-            lambda: self._app_state.set_cursor_time(self._app_state.cursor_time - 0.5)
+            lambda: self._tab_3d._replay.step(-0.5)
         )
         QShortcut(QKeySequence(']'), self).activated.connect(
-            lambda: self._app_state.set_cursor_time(self._app_state.cursor_time + 0.5)
+            lambda: self._tab_3d._replay.step(0.5)
         )
 
     def _on_module_requested(self, index: int):
