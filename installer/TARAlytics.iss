@@ -14,6 +14,14 @@
   #define AppVersion "1.0.0"
 #endif
 
+; VersionInfoVersion / VersionInfoProductVersion must be purely numeric (x.y.z.w).
+; Strip any pre-release suffix (e.g. "1.1.0-rc1" -> "1.1.0") for those fields; the
+; full display version (with the suffix) is still used everywhere else.
+#define NumericVersion AppVersion
+#if Pos("-", NumericVersion) > 0
+  #define NumericVersion Copy(NumericVersion, 1, Pos("-", NumericVersion) - 1)
+#endif
+
 ; ── Core identifiers ─────────────────────────────────────────────────────────
 #define AppName       "TARAlytics Log Analyzer"
 #define AppShortName  "TARAlytics"
@@ -66,11 +74,11 @@ DisableProgramGroupPage=yes
 ShowLanguageDialog=no
 
 ; Version metadata embedded in the installer exe
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#NumericVersion}
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription={#AppName} Setup
 VersionInfoProductName={#AppName}
-VersionInfoProductVersion={#AppVersion}
+VersionInfoProductVersion={#NumericVersion}
 
 ; ─────────────────────────────────────────────────────────────────────────────
 [Languages]
