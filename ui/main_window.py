@@ -91,6 +91,10 @@ class MainWindow(QMainWindow):
 
         self._setup_ui()
         self._update_toolbar_labels()
+        # Load a previously-selected key at startup so the Verify tab reflects it
+        # immediately (verification then runs automatically on the next parse).
+        if self._key_path and os.path.isfile(self._key_path):
+            self._load_key()
 
     def _setup_ui(self):
         toolbar = QToolBar('Main Toolbar')
@@ -302,6 +306,35 @@ class MainWindow(QMainWindow):
             self._update_toolbar_labels()
             self._load_key()
 
+    def _autodiscover_key(self):
+        """If no public key is selected, look for one beside the log so signature
+        verification runs without the user manually loading a key each session.
+
+        Searches the BIN's directory, its parent, and the working directory for a
+        ``*public_key*.dat`` (then any ``*.dat``). First match wins; a key the user
+        explicitly selected is never overridden.
+        """
+        if self._key_path and os.path.isfile(self._key_path):
+            return
+        if not self._bin_path:
+            return
+        import glob
+        bin_dir = os.path.dirname(os.path.abspath(self._bin_path))
+        search_dirs = [bin_dir, os.path.dirname(bin_dir), os.getcwd()]
+        seen = set()
+        for d in search_dirs:
+            if not d or d in seen:
+                continue
+            seen.add(d)
+            for pattern in ('*public_key*.dat', '*pubkey*.dat', '*.dat'):
+                hits = sorted(glob.glob(os.path.join(d, pattern)))
+                if hits:
+                    self._key_path = hits[0]
+                    self._settings.setValue('key_path', self._key_path)
+                    self._update_toolbar_labels()
+                    self._status(f'Auto-loaded public key: {os.path.basename(self._key_path)}')
+                    return
+
     def _load_key(self):
         if self._key_path:
             self._pubkey_str = signature_verifier.load_pubkey_file(self._key_path)
@@ -330,6 +363,7 @@ class MainWindow(QMainWindow):
             self._progress.setVisible(False)
             return
 
+        self._autodiscover_key()
         self._load_key()
 
         self._overlay.start()      # branded mission-processing overlay

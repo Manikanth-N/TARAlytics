@@ -77,7 +77,7 @@ class VerificationTab(QWidget):
             self._key_path = key_path
 
     def _apply_verification(self, result: dict):
-        state = result.get('state', 'UNVERIFIED')
+        state = result.get('state', 'UNKNOWN')
         hashes = result.get('hashes', {})
         key_id = ''
         if hashes:

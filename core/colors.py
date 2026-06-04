@@ -53,15 +53,12 @@ SEVERITY_ROW_BG = {
     'INFO':     'transparent',
 }
 
-STATE_BADGE_COLORS = {
-    'VERIFIED':        ('#198754', '#d1e7dd'),
-    'UNVERIFIED':      ('#856404', '#fff3cd'),
-    'KEY_MISMATCH':    ('#e65100', '#ffe0b2'),
-    'TAMPERED':        ('#dc3545', '#f8d7da'),
-    'STRUCTURE_ERROR': ('#dc3545', '#f8d7da'),
-    'NOT_SIGNED':      ('#6c757d', '#e2e3e5'),
-}
-
-
 def badge_style(state: str) -> tuple:
-    return STATE_BADGE_COLORS.get(state, ('#6c757d', '#e2e3e5'))
+    """(foreground, background) hex for a verification badge.
+
+    Delegates to the single source of truth in core.verification_model so badge
+    colours never drift from the operational classification. Accepts operational or
+    legacy state strings (normalized inside the model).
+    """
+    from core import verification_model as vmodel
+    return vmodel.badge_colors(state)

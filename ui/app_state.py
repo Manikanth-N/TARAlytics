@@ -30,11 +30,13 @@ class FlightMeta:
 
 @dataclass
 class VerifyResult:
-    state:         str = 'NOT_LOADED'
+    state:         str = 'UNKNOWN'
     detail:        str = ''
     structure_ok:  bool = False
     chain_chunks:  int = 0
     chain_ok:      bool = False
+    chain_valid:   bool = False   # keyless hash-chain integrity for chunks present
+    closed:        bool = False   # END record present (log closed cleanly)
     algo_name:     str = '—'
     key_id:        str = '—'
     sha256_signed: str = '—'
@@ -131,6 +133,8 @@ class AppState(QObject):
             structure_ok=result.get('structure_ok', False),
             chain_chunks=result.get('chain_chunks', 0),
             chain_ok=result.get('chain_ok', False),
+            chain_valid=result.get('chain_valid', False),
+            closed=result.get('closed', False),
             algo_name=result.get('algo_name', '—'),
             key_id=ki or '—',
             sha256_signed=h.get('sha256_signed', '—'),
@@ -209,12 +213,21 @@ class AppState(QObject):
 
     def evidence_meta(self) -> dict:
         """Report metadata for the evidence exporters."""
+        v = self._verify
         return {
             'log_path': self._bin_path,
             'serial_number': self._meta.serial_number,
             'firmware': self._meta.firmware,
             'frame_type': self._meta.frame_type,
-            'verification_state': self._verify.state,
+            'verification_state': v.state,
+            'verification': {
+                'state': v.state,
+                'algo_name': v.algo_name,
+                'chain_chunks': v.chain_chunks,
+                'chain_valid': v.chain_valid,
+                'chain_ok': v.chain_ok,
+                'closed': v.closed,
+            },
         }
 
     def connect_cursor(self, slot, name: str):

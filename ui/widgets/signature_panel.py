@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QColor
 from core.colors import badge_style
+from core import verification_model as vmodel
 
 
 _DARK_PANEL  = '#1a1a2a'
@@ -119,7 +120,7 @@ class SignaturePanel(QFrame):
         # ── Status badge ──────────────────────────────────────────────────────
         badge_row = QHBoxLayout()
         badge_row.setSpacing(10)
-        self._badge = QLabel('UNVERIFIED')
+        self._badge = QLabel(vmodel.label('UNKNOWN'))
         self._badge.setStyleSheet(
             'color: #fcd34d; background: #2a1a00; border-radius: 4px; '
             'padding: 3px 12px; font-weight: bold; font-size: 14px; border: none;'
@@ -131,6 +132,13 @@ class SignaturePanel(QFrame):
         self._algo_lbl.setStyleSheet(f'font-size: 11px; color: {_COL_DIM}; border: none; background: transparent;')
         badge_row.addWidget(self._algo_lbl, 1)
         layout.addLayout(badge_row)
+
+        # Operational meaning + guidance (plain-language, not technical state strings)
+        self._op_lbl = QLabel('')
+        self._op_lbl.setWordWrap(True)
+        self._op_lbl.setStyleSheet(
+            f'font-size: 12px; color: {_COL_MID}; border: none; background: transparent;')
+        layout.addWidget(self._op_lbl)
 
         layout.addWidget(_sep_line())
 
@@ -200,17 +208,19 @@ class SignaturePanel(QFrame):
             self.key_changed.emit(path)
 
     def update_verification(self, result: dict, key_path: str = ''):
-        state = result.get('state', 'UNVERIFIED')
+        state = result.get('state', 'UNKNOWN')
         # Reset dynamic labels so previous log's values never bleed across
         self._fp_lbl.setText('Key fingerprint   —')
         self._fp_lbl.setTextFormat(Qt.TextFormat.PlainText)
         self._ed_lbl.setText('Signature result   —')
+        vinfo = vmodel.info(state)
         fg, bg = badge_style(state)
-        self._badge.setText(state)
+        self._badge.setText(vinfo.label)
         self._badge.setStyleSheet(
             f'color: {fg}; background: {bg}; border-radius: 4px; '
             f'padding: 3px 12px; font-weight: bold; font-size: 14px; border: none;'
         )
+        self._op_lbl.setText(f'{vinfo.operational_meaning}  {vinfo.investigator_guidance}')
 
         algo = result.get('algo_name', '')
         self._algo_lbl.setText(algo)

@@ -247,6 +247,16 @@ def _scan_hash_chain(raw: bytes) -> dict:
     pos       = 64  # skip header
     n         = len(raw)
 
+    # T1: jump to the next CHUNK/END record via C-level memchr instead of scanning
+    # byte-by-byte through the data gaps between records. We seek the *nearest* of
+    # the two magics so no END record is skipped — identical visit order and bounds
+    # checks to the previous pos+=1 scan, just without touching every data byte.
+    # The END magic is sparse (one record near the file tail), so we cache its next
+    # position and only re-search after consuming one — otherwise scanning to the
+    # far-off END on every chunk gap would be O(n²) on large logs.
+    chunk_magic_b = struct.pack('<I', CHUNK_MAGIC)
+    end_magic_b   = struct.pack('<I', END_MAGIC)
+    next_end      = raw.find(end_magic_b, pos)
     while pos <= n - 4:
         m = struct.unpack_from('<I', raw, pos)[0]
         if m == CHUNK_MAGIC:
@@ -276,8 +286,20 @@ def _scan_hash_chain(raw: bytes) -> dict:
             end_rec = {'offset': pos, 'final_hash': fh, 'sig_len': sl, 'sig': sig,
                        'chain_tail': prev, 'hash_match': fh == prev}
             pos += END_RECORD_SIZE
+            next_end = raw.find(end_magic_b, pos)   # consumed; find the next one
         else:
-            pos += 1
+            nc = raw.find(chunk_magic_b, pos + 1)
+            if next_end != -1 and next_end <= pos:
+                next_end = raw.find(end_magic_b, pos + 1)
+            ne = next_end
+            if nc < 0 and ne < 0:
+                break
+            if nc < 0:
+                pos = ne
+            elif ne < 0:
+                pos = nc
+            else:
+                pos = nc if nc < ne else ne
 
     return {'ok': len(errors) == 0, 'chunks': chunks, 'end_rec': end_rec,
             'errors': errors, 'algorithm': algorithm}
@@ -340,8 +362,17 @@ def verify_ed25519(raw: bytes, pubkey_b64: str) -> tuple:
 
 
 def full_verify(raw: bytes, pubkey_b64: Optional[str] = None) -> dict:
+    """Classify a log into one operational verification state.
+
+    States (see core.verification_model): VERIFIED, PARTIAL, UNSIGNED, INVALID,
+    CORRUPTED, UNKNOWN, WRONG_KEY. The hash chain is scanned even when structure
+    validation fails, so a truncated-but-intact log (power loss → PARTIAL) is
+    distinguished from genuine corruption (CORRUPTED) and tampering (INVALID).
+    """
+    from core import verification_model as vmodel
+
     result = {
-        'state':              'NOT_SIGNED',
+        'state':              vmodel.UNSIGNED,
         'detail':             '',
         'structure_ok':       False,
         'structure_message':  '',
@@ -350,12 +381,14 @@ def full_verify(raw: bytes, pubkey_b64: Optional[str] = None) -> dict:
         'header_info':        {},
         'chain_chunks':       0,
         'chain_ok':           False,
+        'chain_valid':        False,   # keyless chain integrity for chunks present
+        'closed':             False,   # END record present (log closed cleanly)
         'algo_name':          '',
     }
 
-    if raw[:2] != SIGNED_MAGIC:
-        result['state']  = 'NOT_SIGNED'
-        result['detail'] = 'No signed log magic (0xA5 0x01)'
+    if len(raw) < 2 or raw[:2] != SIGNED_MAGIC:
+        result['state']  = vmodel.UNSIGNED
+        result['detail'] = 'No signed-log magic (0xA5 0x01) — standard unsigned DataFlash log'
         return result
 
     # Parse rich header
@@ -366,36 +399,75 @@ def full_verify(raw: bytes, pubkey_b64: Optional[str] = None) -> dict:
     result['structure_ok']      = struct_ok
     result['structure_message'] = struct_msg
 
-    if not struct_ok:
-        result['state']  = 'STRUCTURE_ERROR'
-        result['detail'] = struct_msg
-        return result
-
-    result['hashes'] = compute_hashes(raw)
-
-    # Hash chain scan (always run)
+    # Always scan the chain — its evidence is what tells truncation from corruption.
     chain = _scan_hash_chain(raw)
     result['chain_chunks'] = chain['chunks']
-    result['chain_ok']     = chain['ok'] and chain['end_rec'] is not None and \
+    result['chain_valid']  = chain['ok']
+    result['closed']       = chain['end_rec'] is not None
+    result['chain_ok']     = chain['ok'] and result['closed'] and \
                               chain['end_rec']['hash_match']
 
-    if pubkey_b64 is None:
-        result['state']  = 'UNVERIFIED'
-        result['detail'] = 'No public key loaded'
+    # A structurally-valid log, OR a cleanly-closed chain-consistent log (END record
+    # carries the signature even if the file trailer is absent), proceeds to signature
+    # verification. Otherwise we classify the structural failure from chain evidence.
+    if struct_ok or (result['closed'] and result['chain_ok']):
+        if struct_ok:
+            result['hashes'] = compute_hashes(raw)
+
+        # Keyless integrity first: on a cleanly-closed log (real END record), a broken
+        # hash chain proves the signed data was altered, independent of any public key,
+        # so it is INVALID — never UNKNOWN (no key) or WRONG_KEY (the key-fingerprint
+        # heuristic is unreliable here). Gated on `closed` so it never fires on a
+        # degenerate stub whose trailer magic aliases a chunk record.
+        if result['closed'] and result['chain_chunks'] > 0 and not result['chain_valid']:
+            result['state']  = vmodel.INVALID
+            result['detail'] = (
+                'Hash-chain mismatch within signed data — possible tampering or corruption.'
+            )
+            return result
+
+        if pubkey_b64 is None:
+            result['state']  = vmodel.UNKNOWN
+            result['detail'] = 'No public key loaded'
+            return result
+
+        try:
+            key_data = pubkey_b64.strip()
+            if key_data.startswith('PUBLIC_KEYV1:'):
+                key_data = key_data[len('PUBLIC_KEYV1:'):]
+            pubkey_bytes = base64.b64decode(key_data)
+            result['fingerprint'] = check_fingerprint(raw, pubkey_bytes)
+        except Exception:
+            result['fingerprint'] = 'ERROR'
+
+        state, detail = verify_ed25519(raw, pubkey_b64)
+        result['state']  = vmodel.normalize_state(state)   # VERIFIED / WRONG_KEY / INVALID
+        result['detail'] = detail
         return result
 
-    try:
-        key_data = pubkey_b64.strip()
-        if key_data.startswith('PUBLIC_KEYV1:'):
-            key_data = key_data[len('PUBLIC_KEYV1:'):]
-        pubkey_bytes = base64.b64decode(key_data)
-        result['fingerprint'] = check_fingerprint(raw, pubkey_bytes)
-    except Exception:
-        result['fingerprint'] = 'ERROR'
-
-    state, detail = verify_ed25519(raw, pubkey_b64)
-    result['state']  = state
-    result['detail'] = detail
+    # ── Structure failed and the log is not a closed, consistent chain ──────────
+    msg = struct_msg.lower()
+    if result['chain_chunks'] > 0 and result['chain_valid'] and not result['closed']:
+        # Hash chain intact for every written chunk but never closed → truncation.
+        result['state']  = vmodel.PARTIAL
+        result['detail'] = (
+            f'Signed log interrupted before closure — {result["chain_chunks"]:,} chunks '
+            f'valid, END record / trailer not written.'
+        )
+    elif result['chain_chunks'] > 0 and not result['chain_valid']:
+        # A chunk hash did not match → data altered within the signed range.
+        result['state']  = vmodel.INVALID
+        result['detail'] = (
+            'Hash-chain mismatch within signed data — possible tampering or corruption.'
+        )
+    elif 'added or removed' in msg or 'structure corrupt' in msg:
+        # Trailer present but signed-range length altered after signing.
+        result['state']  = vmodel.INVALID
+        result['detail'] = struct_msg
+    else:
+        # Verification records unreadable / insufficient to determine integrity.
+        result['state']  = vmodel.CORRUPTED
+        result['detail'] = struct_msg
     return result
 
 

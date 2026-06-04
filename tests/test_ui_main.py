@@ -108,3 +108,34 @@ class TestCrossTabSync:
     def test_status_message_clears_after_timeout(self, main_window, qtbot):
         main_window._status('Test message')
         assert 'Test message' in main_window.statusBar().currentMessage()
+
+
+class TestKeyAutodiscovery:
+    """Verification 'just happens': a public key beside the log is auto-loaded so
+    the user need not manually select it every session (regression for the report
+    'verification is not happening' — it only ran VERIFIED once a key was loaded)."""
+
+    def test_autodiscover_loads_key_beside_log(self, qtbot, tmp_path):
+        import os
+        # log in a subdir, key in the parent — exercises the dir/parent search
+        (tmp_path / 'logs').mkdir()
+        binp = tmp_path / 'logs' / 'flight.BIN'
+        binp.write_bytes(b'\x00' * 256)
+        keyp = tmp_path / 'SN-99_log_public_key.dat'
+        keyp.write_text('PUBLIC_KEYV1:abc')
+
+        w = MainWindow(); qtbot.addWidget(w)
+        w._key_path = ''
+        w._bin_path = str(binp)
+        w._autodiscover_key()
+        assert w._key_path == str(keyp)
+
+    def test_explicit_key_not_overridden(self, qtbot, tmp_path):
+        binp = tmp_path / 'flight.BIN'; binp.write_bytes(b'\x00' * 256)
+        chosen = tmp_path / 'chosen.dat'; chosen.write_text('PUBLIC_KEYV1:xyz')
+        decoy = tmp_path / 'other_public_key.dat'; decoy.write_text('PUBLIC_KEYV1:zzz')
+        w = MainWindow(); qtbot.addWidget(w)
+        w._key_path = str(chosen)          # user picked this one
+        w._bin_path = str(binp)
+        w._autodiscover_key()
+        assert w._key_path == str(chosen)  # never overridden by a discovered key

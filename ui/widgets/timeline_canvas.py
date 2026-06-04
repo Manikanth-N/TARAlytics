@@ -34,6 +34,7 @@ from PyQt6.QtGui import (
 )
 
 from ui.design.tokens import T
+from core import verification_model as vmodel
 
 
 # ── layout constants ─────────────────────────────────────────────────────────
@@ -616,25 +617,24 @@ class TimelineCanvas(QWidget):
     def _draw_verify(self, p, y, h):
         x0, x1 = self._plot_x()
         v = self._app.verification
-        state = getattr(v, 'state', 'NOT_LOADED')
-        if state == 'VERIFIED':
-            col = QColor(T.status.nominal); col.setAlphaF(0.45); label = 'verified'
-            cover = 1.0
-        elif state in ('STRUCTURE_ERROR', 'TRUNCATED'):
-            col = QColor(T.status.caution); col.setAlphaF(0.45); label = 'partial / truncated'
-            cover = 0.9
-        elif state in ('NOT_LOADED', 'NOT_SIGNED', ''):
-            col = QColor(T.text.muted); col.setAlphaF(0.30); label = 'unsigned'
-            cover = 0.0
-        else:
-            col = QColor(T.status.critical); col.setAlphaF(0.45); label = state.lower()
-            cover = 0.0
+        state = vmodel.normalize_state(getattr(v, 'state', 'UNKNOWN'))
+        info = vmodel.info(state)
+        col = QColor(info.color)
+        label = info.label.lower()
+        if state == vmodel.VERIFIED:
+            col.setAlphaF(0.45); cover = 1.0
+        elif state == vmodel.PARTIAL:
+            col.setAlphaF(0.45); cover = 0.9; label = 'partial — interrupted'
+        elif state in (vmodel.UNSIGNED, vmodel.UNKNOWN):
+            col.setAlphaF(0.30); cover = 0.0
+        else:  # INVALID / CORRUPTED / WRONG_KEY
+            col.setAlphaF(0.45); cover = 0.0
         rect = QRectF(x0, y + 2, x1 - x0, h - 4)
         p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(T.surface.panel)); p.drawRect(rect)
         if cover > 0:
             p.setBrush(QBrush(col))
             p.drawRect(QRectF(x0, y + 2, (x1 - x0) * cover, h - 4))
-        if cover < 1.0 and state in ('STRUCTURE_ERROR', 'TRUNCATED'):
+        if cover < 1.0 and state == vmodel.PARTIAL:
             hc = QColor(T.status.critical); hc.setAlphaF(0.40)
             p.setBrush(QBrush(hc, Qt.BrushStyle.BDiagPattern))
             p.drawRect(QRectF(x0 + (x1 - x0) * cover, y + 2, (x1 - x0) * (1 - cover), h - 4))

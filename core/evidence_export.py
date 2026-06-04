@@ -12,6 +12,42 @@ from datetime import datetime
 _APP = 'TARAlytics'
 
 
+def _state_label(state: str) -> str:
+    """Operational label for a raw/legacy verification state string."""
+    from core import verification_model as vmodel
+    return vmodel.label(state)
+
+
+def _verification_block(meta: dict) -> dict:
+    """Operational verification record for reports — Status / Operational Meaning /
+    Verification Basis / Investigator Guidance, never a raw internal state string."""
+    from core import verification_model as vmodel
+    v = meta.get('verification') or {}
+    state = vmodel.normalize_state(v.get('state') or meta.get('verification_state', ''))
+    info = vmodel.info(state)
+    return {
+        'status': info.state,
+        'label': info.label,
+        'operational_meaning': info.operational_meaning,
+        'verification_basis': vmodel.verification_basis(v) if v else [],
+        'investigator_guidance': info.investigator_guidance,
+    }
+
+
+def _verification_md(meta: dict) -> list:
+    """Markdown lines for the Verification section of a report."""
+    b = _verification_block(meta)
+    lines = ['## Verification', '',
+             '**Status**  ', f'{b["label"]}', '',
+             '**Operational Meaning**  ', f'{b["operational_meaning"]}', '']
+    if b['verification_basis']:
+        lines += ['**Verification Basis**  ']
+        lines += [f'- {ln}' for ln in b['verification_basis']]
+        lines += ['']
+    lines += ['**Investigator Guidance**  ', f'{b["investigator_guidance"]}', '', '---', '']
+    return lines
+
+
 def _f(v, fmt='{:.2f}', unit='', none='—'):
     if v is None:
         return none
@@ -34,6 +70,7 @@ def build_report(snapshots: list, meta: dict | None = None, report=None) -> dict
             'firmware': meta.get('firmware', ''),
             'frame_type': meta.get('frame_type', ''),
             'verification_state': meta.get('verification_state', ''),
+            'verification': _verification_block(meta),
         },
         'snapshot_count': len(snapshots),
         'snapshots': [s.to_dict() for s in snapshots],
@@ -155,7 +192,7 @@ def _snapshot_md(s) -> str:
         '| GPS | {} |'.format(gps),
         '| EKF health | {} |'.format(ekf_txt),
         '| Position divergence | {} |'.format(posdiv),
-        '| Verification | {} |'.format(s.verification_state),
+        '| Verification | {} |'.format(_state_label(s.verification_state)),
         '',
         '**Control — Pilot / Demand / Actual:**',
         '',
@@ -206,13 +243,13 @@ def to_markdown(snapshots: list, meta: dict | None = None, report=None,
         f"**Generated:** {datetime.now().isoformat(timespec='seconds')}  ",
         f"**Aircraft:** {meta.get('serial_number', '—')} · "
         f"{meta.get('firmware', '—')} · {meta.get('frame_type', '—')}  ",
-        f"**Verification:** {meta.get('verification_state', '—')}  ",
+        f"**Verification:** {_verification_block(meta)['label']}  ",
     ]
     if verdict:
         head.append(verdict)
     head += [f"**Snapshots:** {len(snapshots)}", '', '---', '']
 
-    body = []
+    body = list(_verification_md(meta))
     if report is not None:
         body.append(_conclusion_md(report))
         body.append(_findings_md(report, plot_paths))

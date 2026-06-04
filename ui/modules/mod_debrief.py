@@ -19,6 +19,7 @@ from ui.app_state import AppState, VerifyResult
 from ui.widgets.module_header import ModuleHeader
 from ui.widgets.badge import StatusBadge
 from ui.widgets.card import MetricCard
+from core import verification_model as vmodel
 from core.flight_metrics import FlightMetrics
 
 _NAV_SIGNALS = 4
@@ -219,7 +220,7 @@ class DebriefModule(QWidget):
         lay.setContentsMargins(T.spacing.px16, T.spacing.px12, T.spacing.px16, T.spacing.px12)
         lay.setSpacing(T.spacing.px8)
         lay.addWidget(_section_label('Verification'))
-        self._v_badge = StatusBadge('UNVERIFIED', 'UNVERIFIED')
+        self._v_badge = StatusBadge('UNKNOWN', vmodel.label('UNKNOWN'))
         self._v_algo = QLabel('—'); self._v_chunks = QLabel('—'); self._v_detail = QLabel('')
         self._v_detail.setWordWrap(True)
         for lbl in (self._v_algo, self._v_chunks, self._v_detail):
@@ -304,8 +305,11 @@ class DebriefModule(QWidget):
         self._m_modes.set_value(str(FlightMetrics.mode_change_count(data)))
 
     def _on_verify(self, result: VerifyResult):
-        self._v_badge.set_state(result.state, result.state)
+        self._v_badge.set_state(result.state, vmodel.label(result.state))
         self._v_algo.setText(result.algo_name if result.algo_name != '—' else '—')
-        self._v_chunks.setText(
-            f'{result.chain_chunks:,} chunks verified' if result.chain_chunks else '—')
-        self._v_detail.setText(result.detail[:80] if result.detail else '')
+        if result.chain_chunks:
+            tail = 'verified' if result.chain_valid else 'MISMATCH'
+            self._v_chunks.setText(f'{result.chain_chunks:,} chunks {tail}')
+        else:
+            self._v_chunks.setText('—')
+        self._v_detail.setText(vmodel.info(result.state).short_msg)

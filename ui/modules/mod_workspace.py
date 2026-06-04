@@ -22,6 +22,7 @@ from PyQt6.QtCore import Qt, QSettings
 from ui.design.tokens import T
 from ui.app_state import AppState
 from ui.widgets.module_header import ModuleHeader
+from core import verification_model as vmodel
 
 # surfaces that make sense as floating windows (read-only, cursor-driven)
 _POPOUTABLE = {'horizon', 'rc', 'map', 'replay'}
@@ -46,7 +47,7 @@ class _VerifySummary(QWidget):
         lay.setContentsMargins(T.spacing.px16, T.spacing.px12, T.spacing.px16, T.spacing.px12)
         lay.setSpacing(T.spacing.px8)
         from ui.widgets.badge import StatusBadge
-        self._badge = StatusBadge('UNVERIFIED', 'UNVERIFIED')
+        self._badge = StatusBadge('UNKNOWN', vmodel.label('UNKNOWN'))
         self._lines = {k: QLabel('—') for k in ('algo', 'chunks', 'key', 'fp', 'detail')}
         lay.addWidget(self._badge)
         for k in ('algo', 'chunks', 'key', 'fp', 'detail'):
@@ -59,13 +60,16 @@ class _VerifySummary(QWidget):
 
     def refresh(self):
         v = self._app.verification
-        self._badge.set_state(v.state, v.state)
+        self._badge.set_state(v.state, vmodel.label(v.state))
         self._lines['algo'].setText(f'Algorithm: {v.algo_name}')
-        self._lines['chunks'].setText(
-            f'{v.chain_chunks:,} chunks verified' if v.chain_chunks else 'Chain: —')
+        if v.chain_chunks:
+            tail = 'verified' if v.chain_valid else 'MISMATCH'
+            self._lines['chunks'].setText(f'{v.chain_chunks:,} chunks {tail}')
+        else:
+            self._lines['chunks'].setText('Chain: —')
         self._lines['key'].setText(f'Key ID: {v.key_id}')
         self._lines['fp'].setText(f'Fingerprint: {v.fingerprint}')
-        self._lines['detail'].setText(v.detail[:120] if v.detail else '')
+        self._lines['detail'].setText(vmodel.info(v.state).short_msg)
 
 
 class PanelFrame(QWidget):

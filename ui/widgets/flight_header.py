@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt
 from ui.design.tokens import T
 from ui.widgets.badge import StatusBadge
 from ui.app_state import AppState, FlightMeta, VerifyResult
+from core import verification_model as vmodel
 
 
 class FlightIdentityBar(QWidget):
@@ -32,7 +33,7 @@ class FlightIdentityBar(QWidget):
         self._text.setFont(self._mono)
         self._text.setStyleSheet(f'color: {T.text.secondary};')
 
-        self._badge = StatusBadge('UNVERIFIED', 'UNVERIFIED')
+        self._badge = StatusBadge('UNKNOWN', vmodel.label('UNKNOWN'))
 
         layout.addWidget(self._text)
         layout.addStretch()
@@ -59,7 +60,7 @@ class FlightIdentityBar(QWidget):
         self._text.setText('   ·   '.join(parts) if parts else 'LOG LOADED')
 
     def _on_verify(self, result: VerifyResult):
-        self._badge.set_state(result.state, result.state)
+        self._badge.set_state(result.state, vmodel.label(result.state))
 
     def paintEvent(self, _):
         p = QPainter(self)

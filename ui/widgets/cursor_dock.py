@@ -26,6 +26,7 @@ from PyQt6.QtGui import QFont, QColor
 from ui.design.tokens import T
 from core.health_analyzer import GPS_FIX_NAMES
 from core import diagnostics
+from core import verification_model as vmodel
 
 
 # ── altitude / gps source resolution (documented hierarchy, via SampleService) ─
@@ -298,15 +299,11 @@ class CursorContextPanel(QWidget):
         lbl.setStyleSheet(f'color: {colour};')
 
     def _refresh_verify(self):
-        state = getattr(self._app.verification, 'state', 'NOT_LOADED')
+        state = getattr(self._app.verification, 'state', 'UNKNOWN')
+        info = vmodel.info(state)
         lbl = self._vals['verify']
-        lbl.setText(state.replace('_', ' '))
-        colour = {
-            'VERIFIED': T.status.nominal,
-            'STRUCTURE_ERROR': T.status.caution, 'TRUNCATED': T.status.caution,
-            'NOT_LOADED': T.text.muted, 'NOT_SIGNED': T.text.muted, '': T.text.muted,
-        }.get(state, T.status.critical)
-        lbl.setStyleSheet(f'color: {colour};')
+        lbl.setText(info.label)
+        lbl.setStyleSheet(f'color: {info.color};')
 
 
 # ── Values-at-cursor table ─────────────────────────────────────────────────────

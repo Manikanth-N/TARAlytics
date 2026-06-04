@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame, Q
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from core.colors import badge_style
+from core import verification_model as vmodel
 
 
 GPS_FIX_NAMES = {
@@ -71,7 +72,7 @@ class HealthCard(QFrame):
 
     def set_state(self, state: str, sub: str = ''):
         fg, bg = badge_style(state)
-        self._badge.setText(state)
+        self._badge.setText(vmodel.label(state))
         self._badge.setStyleSheet(
             f'color: {fg}; background: {bg}; border-radius: 4px; '
             f'padding: 2px 8px; font-weight: bold; font-size: 13px; border: none;'
@@ -219,7 +220,7 @@ class HealthCardsWidget(QWidget):
                 '#fcd34d', '#2a1a00',
             )
 
-    def update_all(self, data: dict, sig_state: str = 'UNVERIFIED', key_id: str = ''):
+    def update_all(self, data: dict, sig_state: str = 'UNKNOWN', key_id: str = ''):
         self.update_signature(sig_state, key_id)
         self.update_firmware(data)
         self.update_vehicle(data)

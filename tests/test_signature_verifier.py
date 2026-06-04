@@ -105,29 +105,29 @@ class TestComputeHashes:
 class TestFullVerify:
     def test_unsigned_log_state(self):
         result = full_verify(b'\xA3\x95' + b'\x00' * 200)
-        assert result['state'] == 'NOT_SIGNED'
+        assert result['state'] == 'UNSIGNED'
 
     def test_no_pubkey_state(self, signed_log_bytes):
         result = full_verify(signed_log_bytes, pubkey_b64=None)
-        assert result['state'] == 'UNVERIFIED'
+        assert result['state'] == 'UNKNOWN'
         assert 'No public key' in result['detail']
 
-    def test_structure_error_state(self):
-        # Signed magic but no valid trailer → STRUCTURE_ERROR
+    def test_malformed_structure_is_corrupted(self):
+        # Signed magic but no chunks and no valid trailer → records unreadable.
         raw = SIGNED_MAGIC + b'\x00' * 200
         result = full_verify(raw, pubkey_b64=None)
-        assert result['state'] == 'STRUCTURE_ERROR'
+        assert result['state'] == 'CORRUPTED'
 
     def test_valid_structure_parsed(self, signed_log_bytes):
         result = full_verify(signed_log_bytes, pubkey_b64=None)
         assert result['structure_ok'] is True
 
-    def test_wrong_key_gives_key_mismatch(self, signed_log_bytes):
+    def test_wrong_key_gives_wrong_key_or_invalid(self, signed_log_bytes):
         import base64
         fake_key = base64.b64encode(b'\x00' * 32).decode()
         result = full_verify(signed_log_bytes, pubkey_b64=f'PUBLIC_KEYV1:{fake_key}')
-        # With our minimal log (no valid hash chain), should be KEY_MISMATCH or TAMPERED
-        assert result['state'] in ('KEY_MISMATCH', 'TAMPERED', 'UNVERIFIED')
+        # Operational model: wrong key → WRONG_KEY; failed sig on plausible key → INVALID
+        assert result['state'] in ('WRONG_KEY', 'INVALID')
 
     def test_result_always_has_required_keys(self, signed_log_bytes):
         result = full_verify(signed_log_bytes, pubkey_b64=None)
