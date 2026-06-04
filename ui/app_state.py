@@ -79,6 +79,7 @@ class AppState(QObject):
         self._timeline_model = None
         self._rc_model = None
         self._flight_report = None     # whole-flight analytics (P3)
+        self._playback = None          # single playback controller (lazy)
 
         # investigation snapshots (P2) — per-log session, cleared on reload
         from core.snapshot import SnapshotStore
@@ -277,6 +278,17 @@ class AppState(QObject):
             from core.sample_service import SampleService
             self._sample_service = SampleService(self._data)
         return self._sample_service
+
+    @property
+    def playback(self):
+        """The single PlaybackController for this window — the one timer / play
+        state / speed that drives the shared cursor. Lazy and persistent across log
+        reloads (it is a controller, not data). Added in Phase A; not yet wired to the
+        transport/replay views (no behavior change until a later phase)."""
+        if self._playback is None:
+            from ui.playback_controller import PlaybackController
+            self._playback = PlaybackController(self)
+        return self._playback
 
     @property
     def timeline_model(self):
