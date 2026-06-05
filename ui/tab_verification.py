@@ -1,16 +1,19 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QSplitter
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QWidget, QVBoxLayout
 
 from core import signature_verifier
-from core.anomaly_detector import detect_anomalies
-from ui.widgets.health_cards import HealthCardsWidget
-from ui.widgets.flight_summary import FlightSummaryWidget
 from ui.widgets.signature_panel import SignaturePanel
-from ui.widgets.event_table import EventTable
-from ui.widgets.event_timeline import EventTimeline
 
 
 class VerificationTab(QWidget):
+    """Verify answers exactly one question: *can I trust this log?*
+
+    It reports integrity and authenticity only — signature status, hash-chain
+    status, key information and the operational verification classification.
+    It deliberately carries NO flight-analysis content: no automatic faults,
+    no analytics warnings, no scores, no oscillation/vibration/pilot findings.
+    Those live in Debrief (verification and analytics are separate concerns).
+    """
+
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
         self._mw = main_window
@@ -23,45 +26,19 @@ class VerificationTab(QWidget):
     def _setup_ui(self):
         self.setStyleSheet('background: #13131f;')
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 4)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
-
-        self._cards = HealthCardsWidget()
-        layout.addWidget(self._cards)
-
-        self._summary = FlightSummaryWidget()
-        layout.addWidget(self._summary)
 
         self._sig_panel = SignaturePanel()
         self._sig_panel.key_changed.connect(self._on_key_changed)
         layout.addWidget(self._sig_panel)
-
-        self._event_table = EventTable()
-        layout.addWidget(self._event_table, 1)
-
-        self._timeline = EventTimeline()
-        self._timeline.timeline_clicked.connect(self._on_timeline_click)
-        layout.addWidget(self._timeline)
+        layout.addStretch(1)
 
     def update_data(self, data: dict, raw: bytes):
+        # Verify keeps the bytes for (re)verification but injects no analytics,
+        # events or faults — integrity/authenticity only.
         self._data = data
         self._raw = raw
-        self._event_table.populate(data)
-        events = self._event_table.get_events()
-        if events:
-            t_min = min(e[0] for e in events)
-            t_max = max(e[0] for e in events)
-            self._timeline.set_events(events, t_min, t_max)
-
-        self._cards.update_firmware(data)
-        self._cards.update_vehicle(data)
-        self._cards.update_ekf(data)
-        self._cards.update_gps(data)
-
-        self._summary.update_data(data)
-
-        anomalies = detect_anomalies(data)
-        self._cards.update_faults(anomalies)
 
     def set_pubkey(self, pubkey_str, key_path: str):
         self._pubkey = pubkey_str
@@ -72,27 +49,12 @@ class VerificationTab(QWidget):
             self._apply_verification(result)
 
     def update_verification(self, result: dict, key_path: str = ''):
-        self._apply_verification(result)
         if key_path:
             self._key_path = key_path
+        self._apply_verification(result)
 
     def _apply_verification(self, result: dict):
-        state = result.get('state', 'UNKNOWN')
-        hashes = result.get('hashes', {})
-        key_id = ''
-        if hashes:
-            ki = hashes.get('key_id', '')
-            if ki:
-                key_id = ' '.join(ki[i:i+2] for i in range(0, len(ki), 2))
-        self._cards.update_signature(state, key_id)
         self._sig_panel.update_verification(result, self._key_path)
 
     def _on_key_changed(self, path: str):
         self._mw.set_key_path_from_panel(path)
-
-    def _on_timeline_click(self, t: float):
-        self._event_table.scroll_to_time(t)
-        try:
-            self._mw._tab_plotter.set_crosshair(t)
-        except Exception:
-            pass

@@ -102,8 +102,8 @@ class TestReplayScrubber:
         assert 4900 <= val <= 5100  # approximately 5000
 
     def test_set_time_updates_label(self, replay_with_range):
-        replay_with_range.set_time(25.0)
-        assert '25.00' in replay_with_range._time_lbl.text()
+        replay_with_range.set_time(25.0)              # range [10,60] → elapsed 15s / 50s
+        assert replay_with_range._time_lbl.text() == '00:15 / 00:50'
 
 
 class TestReplaySpeed:

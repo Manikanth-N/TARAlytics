@@ -133,12 +133,19 @@ class SignaturePanel(QFrame):
         badge_row.addWidget(self._algo_lbl, 1)
         layout.addLayout(badge_row)
 
-        # Operational meaning + guidance (plain-language, not technical state strings)
+        # Operational meaning (plain-language, not a technical state string)
         self._op_lbl = QLabel('')
         self._op_lbl.setWordWrap(True)
         self._op_lbl.setStyleSheet(
             f'font-size: 12px; color: {_COL_MID}; border: none; background: transparent;')
         layout.addWidget(self._op_lbl)
+
+        # Investigator guidance (what this means for trusting the log)
+        self._guidance_lbl = QLabel('')
+        self._guidance_lbl.setWordWrap(True)
+        self._guidance_lbl.setStyleSheet(
+            f'font-size: 11px; color: {_COL_DIM}; border: none; background: transparent;')
+        layout.addWidget(self._guidance_lbl)
 
         layout.addWidget(_sep_line())
 
@@ -220,7 +227,8 @@ class SignaturePanel(QFrame):
             f'color: {fg}; background: {bg}; border-radius: 4px; '
             f'padding: 3px 12px; font-weight: bold; font-size: 14px; border: none;'
         )
-        self._op_lbl.setText(f'{vinfo.operational_meaning}  {vinfo.investigator_guidance}')
+        self._op_lbl.setText(vinfo.operational_meaning)
+        self._guidance_lbl.setText(f'Investigator guidance:  {vinfo.investigator_guidance}')
 
         algo = result.get('algo_name', '')
         self._algo_lbl.setText(algo)

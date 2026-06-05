@@ -17,7 +17,9 @@ from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QComboBox, QLabel, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QTimer, QRectF, QPointF
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPainterPath, QPolygonF
+from PyQt6.QtGui import (
+    QPainter, QColor, QPen, QBrush, QFont, QPainterPath, QPolygonF, QFontMetrics,
+)
 
 from ui.design.tokens import T
 from ui.widgets.timeline_canvas import (
@@ -195,6 +197,9 @@ class TimelineTransport(QWidget):
         self._app = app_state
         self._speed = 1.0
         self._playing = False
+        self._t0 = 0.0
+        self._total = 0.0
+        self._use_hours = False
         self.setFixedHeight(74)
         self.setStyleSheet(f'background: {T.surface.panel};')
 
@@ -231,9 +236,16 @@ class TimelineTransport(QWidget):
         # whole-flight scrub strip + time readout; the control buttons are hidden.
         for w in (self._reset_btn, self._play_btn, self._speed_cb):
             w.hide()
-        self._time_lbl = QLabel('0.00 s')
-        self._time_lbl.setFont(QFont(T.font.data, T.size.xs))
+        # Fixed-width monospaced transport clock (elapsed / total). Reserving the
+        # width for the longest expected value keeps the bar perfectly still while
+        # playback runs — the digits update in place, nothing reflows.
+        clock_font = QFont(T.font.data, T.size.xs)
+        clock_font.setStyleHint(QFont.StyleHint.Monospace)
+        self._time_lbl = QLabel('00:00 / 00:00')
+        self._time_lbl.setFont(clock_font)
         self._time_lbl.setStyleSheet(f'color: {T.text.primary};')
+        self._time_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._size_clock()
         ctl.addLayout(btns); ctl.addWidget(self._time_lbl)
         root.addLayout(ctl)
 
@@ -241,6 +253,7 @@ class TimelineTransport(QWidget):
         root.addWidget(self._mini, 1)
 
         app_state.connect_cursor(self._on_cursor, 'TimelineTransport.label')
+        app_state.data_changed.connect(self._on_total)
 
     def _tbtn(self, text, tip):
         b = QPushButton(text); b.setToolTip(tip); b.setFixedSize(30, 22)
@@ -252,7 +265,28 @@ class TimelineTransport(QWidget):
         return b
 
     def _on_cursor(self, t):
-        self._time_lbl.setText(f'{t:.2f} s')
+        elapsed = max(0.0, float(t) - self._t0)
+        self._time_lbl.setText(f'{self._fmt_clock(elapsed)} / {self._fmt_clock(self._total)}')
+
+    def _on_total(self, _data=None):
+        t0, t1 = self._span()
+        self._t0 = t0
+        self._total = max(0.0, t1 - t0)
+        self._use_hours = self._total >= 3600
+        self._size_clock()
+        self._on_cursor(self._app.cursor_time)
+
+    def _fmt_clock(self, seconds: float) -> str:
+        s = int(round(seconds))
+        if self._use_hours:
+            return f'{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d}'
+        return f'{s // 60:02d}:{s % 60:02d}'
+
+    def _size_clock(self):
+        # Reserve width for the longest value the current log can show.
+        longest = '00:00:00 / 00:00:00' if self._use_hours else '00:00 / 00:00'
+        w = QFontMetrics(self._time_lbl.font()).horizontalAdvance(longest) + 10
+        self._time_lbl.setFixedWidth(w)
 
     def _span(self):
         tm = self._app.timeline_model
