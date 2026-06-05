@@ -109,3 +109,79 @@ class TestVerifySimplified:
         sp = verify._sig_panel
         assert sp._badge.text() == vmodel.info('PARTIAL').label
         assert sp._op_lbl.text() == vmodel.info('PARTIAL').operational_meaning
+
+
+# ── Transport is the single playback controller (directional) ────────────────
+class TestTransportDirectional:
+    @pytest.fixture
+    def transport(self, qtbot):
+        from ui.app_state import AppState
+        from ui.widgets.timeline_transport import TimelineTransport
+        st = AppState()
+        tr = TimelineTransport(st); qtbot.addWidget(tr); tr.resize(900, 74)
+        st.set_parsed_data(_data(dur=120.0), b'', '')
+        return tr, st
+
+    def test_all_directional_controls_present_and_visible(self, transport):
+        tr, _ = transport
+        for a in ('_start_btn', '_stepback_btn', '_rev_btn', '_play_btn',
+                  '_fwd_btn', '_stepfwd_btn', '_speed_cb'):
+            assert hasattr(tr, a), a
+        # restored — no longer hidden
+        for w in (tr._start_btn, tr._rev_btn, tr._play_btn, tr._fwd_btn,
+                  tr._stepfwd_btn, tr._speed_cb):
+            assert not w.isHidden()
+
+    def test_forward_play_advances(self, transport):
+        tr, st = transport
+        st.set_cursor_time(10.0); tr._speed = 5.0
+        tr._play(1); tr._tick(); tr._stop()
+        assert st.cursor_time > 10.0
+
+    def test_reverse_play_decreases(self, transport):
+        tr, st = transport
+        st.set_cursor_time(50.0); tr._speed = 5.0
+        tr._play(-1); tr._tick(); tr._stop()
+        assert st.cursor_time < 50.0
+
+    def test_step_forward_and_back(self, transport):
+        tr, st = transport
+        st.set_cursor_time(20.0)
+        tr.step(0.5); assert st.cursor_time == pytest.approx(20.5)
+        tr.step(-0.5); assert st.cursor_time == pytest.approx(20.0)
+
+    def test_to_start(self, transport):
+        tr, st = transport
+        st.set_cursor_time(40.0)
+        tr._to_start()
+        t0, _ = tr._span()
+        assert st.cursor_time == pytest.approx(t0)
+
+    def test_play_pause_icon_toggles(self, transport):
+        tr, _ = transport
+        tr._play(1); assert tr._play_btn.text() == '⏸'
+        tr._stop(); assert tr._play_btn.text() == '▶'
+
+
+# ── Replay window is view-only (no playback) ─────────────────────────────────
+class TestReplayViewOnly:
+    def test_replay_has_no_playback_controls(self, qtbot):
+        from ui.tab_3d_view import View3DTab
+
+        class _MW:
+            pass
+        v = View3DTab(_MW()); qtbot.addWidget(v)
+        assert not hasattr(v, '_replay')          # playback removed from Replay
+        assert hasattr(v, '_follow_cb')           # Follow kept (view control)
+        assert hasattr(v, '_arrows_cb')           # heading kept
+
+    def test_follow_toggle_updates_state(self, qtbot):
+        from ui.tab_3d_view import View3DTab
+
+        class _MW:
+            pass
+        v = View3DTab(_MW()); qtbot.addWidget(v)
+        v._follow_cb.setChecked(False)
+        assert v._follow_vehicle is False
+        v._follow_cb.setChecked(True)
+        assert v._follow_vehicle is True

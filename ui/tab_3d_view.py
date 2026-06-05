@@ -15,7 +15,6 @@ except Exception:
 
 from core.gps_converter import best_trajectory
 from core.colors import viridis_rgba
-from ui.widgets.replay_controls import ReplayControls
 
 MODE_NAMES = {
     0: 'STABILIZE', 1: 'ACRO', 2: 'ALT_HOLD', 3: 'AUTO', 4: 'GUIDED',
@@ -160,6 +159,13 @@ class View3DTab(QWidget):
         self._arrows_cb.stateChanged.connect(self._toggle_arrows)
         ctrl_layout.addWidget(self._arrows_cb)
 
+        # Follow is a *view* control (camera tracks the aircraft) — it stays in the
+        # Replay window. Playback itself lives only in the bottom transport.
+        self._follow_cb = QCheckBox('Follow')
+        self._follow_cb.setChecked(True)
+        self._follow_cb.stateChanged.connect(lambda s: self._on_follow_changed(bool(s)))
+        ctrl_layout.addWidget(self._follow_cb)
+
         ctrl_bar.adjustSize()
         if GL_AVAILABLE:
             # Reposition when GL view resizes
@@ -171,17 +177,8 @@ class View3DTab(QWidget):
         else:
             center_layout.addWidget(ctrl_bar)
 
-        self._replay = ReplayControls()
-        self._replay.setStyleSheet('background: #13131f;')
-        # Playback / scrub / step drives the SHARED cursor, so every surface
-        # (Horizon, RC, Timeline, Dock, Map, Plotter) animates with the replay.
-        # The shared cursor then calls View3D.set_time → _on_time_changed for the
-        # 3-D update, so there is a single update path (no double-update, no loop;
-        # ReplayControls.set_time does not re-emit).
-        self._replay.time_changed.connect(self._on_replay_time)
-        self._replay.follow_changed.connect(self._on_follow_changed)
-        center_layout.addWidget(self._replay)
-
+        # Replay is view-only: it follows the shared cursor (driven by the bottom
+        # transport) via View3D.set_time → _on_time_changed. No playback controls here.
         layout.addWidget(center, 1)
 
         self._telem = TelemetryPanel()
@@ -305,10 +302,6 @@ class View3DTab(QWidget):
         self._default_dist = dist
         self._default_center = (cx, cy, cz)
 
-        t_min = float(times[0]) if len(times) > 0 else 0.0
-        t_max = float(times[-1]) if len(times) > 0 else 1.0
-        self._replay.set_range(t_min, t_max)
-
     def _add_ground_plane(self, east, north):
         w = max(float(east.max() - east.min()) + 40, 20)
         h = max(float(north.max() - north.min()) + 40, 20)
@@ -395,15 +388,6 @@ class View3DTab(QWidget):
             pt(-0.4 * L,  0.3 * L),  # right tail fin
         ], dtype=np.float32))
 
-    def _on_replay_time(self, t: float):
-        """Replay produced a time. Drive the shared cursor so all surfaces follow;
-        fall back to a direct 3-D update if no AppState is wired (standalone use)."""
-        app = getattr(self._mw, '_app_state', None)
-        if app is not None:
-            app.set_cursor_time(t)        # → cursor_time_changed → View3D.set_time
-        else:
-            self._on_time_changed(t)
-
     def _on_time_changed(self, t: float):
         traj = self._traj
         if traj is None:
@@ -476,12 +460,11 @@ class View3DTab(QWidget):
             item.setVisible(self._show_arrows)
 
     def set_time(self, t_abs: float):
-        """Called from plotter crosshair movement to sync 3D replay."""
+        """Follow the shared cursor (driven by the bottom transport / scrubbing)."""
         now = time.monotonic()
         if now - getattr(self, '_last_set_time', 0.0) < 0.033:
             return
         self._last_set_time = now
-        self._replay.set_time(t_abs)
         self._on_time_changed(t_abs)
 
     def _reset_camera(self):

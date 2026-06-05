@@ -197,6 +197,7 @@ class TimelineTransport(QWidget):
         self._app = app_state
         self._speed = 1.0
         self._playing = False
+        self._direction = 1            # +1 forward, -1 reverse
         self._t0 = 0.0
         self._total = 0.0
         self._use_hours = False
@@ -213,12 +214,22 @@ class TimelineTransport(QWidget):
 
         ctl = QVBoxLayout(); ctl.setSpacing(3)
         btns = QHBoxLayout(); btns.setSpacing(4)
-        self._reset_btn = self._tbtn('⏮', 'Reset to start')
-        self._play_btn = self._tbtn('▶', 'Play / pause')
-        self._play_btn.setStyleSheet(self._play_btn.styleSheet().replace(
-            T.surface.card, T.brand.blue_deep))
-        self._reset_btn.clicked.connect(self._reset)
+        # Directional transport — the single, global playback controller. Every
+        # control drives the shared cursor, so all surfaces (Replay, Map, Signals,
+        # Horizon, Timeline, Dock) follow. Replay does not own playback.
+        self._start_btn    = self._tbtn('⏮', 'Jump to start')
+        self._stepback_btn = self._tbtn('⏪', 'Step back 0.5 s')
+        self._rev_btn      = self._tbtn('◀', 'Play in reverse')
+        self._play_btn     = self._tbtn('▶', 'Play / pause', primary=True)
+        self._fwd_btn      = self._tbtn('▶', 'Play forward')
+        self._stepfwd_btn  = self._tbtn('⏩', 'Step forward 0.5 s')
+        self._start_btn.clicked.connect(self._to_start)
+        self._stepback_btn.clicked.connect(lambda: self.step(-0.5))
+        self._rev_btn.clicked.connect(lambda: self._play(-1))
         self._play_btn.clicked.connect(self.toggle_play)
+        self._fwd_btn.clicked.connect(lambda: self._play(1))
+        self._stepfwd_btn.clicked.connect(lambda: self.step(0.5))
+
         self._speed_cb = QComboBox()
         for s in _SPEEDS:
             self._speed_cb.addItem(f'{s:g}×', s)
@@ -229,13 +240,16 @@ class TimelineTransport(QWidget):
             f'font-size: {T.size.xs}px; }}')
         self._speed_cb.currentIndexChanged.connect(
             lambda i: setattr(self, '_speed', self._speed_cb.itemData(i)))
-        btns.addWidget(self._reset_btn); btns.addWidget(self._play_btn)
+
+        for w in (self._start_btn, self._stepback_btn, self._rev_btn,
+                  self._play_btn, self._fwd_btn, self._stepfwd_btn):
+            btns.addWidget(w)
+        btns.addSpacing(8)
+        spd_lbl = QLabel('Speed')
+        spd_lbl.setStyleSheet(f'color: {T.text.muted}; font-size: {T.size.xs}px;')
+        btns.addWidget(spd_lbl)
         btns.addWidget(self._speed_cb)
-        # Playback (play/pause/reset/speed) lives in the Replay tab. To avoid duplicate
-        # play controls on the main screen, this persistent bottom bar keeps only the
-        # whole-flight scrub strip + time readout; the control buttons are hidden.
-        for w in (self._reset_btn, self._play_btn, self._speed_cb):
-            w.hide()
+        btns.addStretch()
         # Fixed-width monospaced transport clock (elapsed / total). Reserving the
         # width for the longest expected value keeps the bar perfectly still while
         # playback runs — the digits update in place, nothing reflows.
@@ -255,12 +269,16 @@ class TimelineTransport(QWidget):
         app_state.connect_cursor(self._on_cursor, 'TimelineTransport.label')
         app_state.data_changed.connect(self._on_total)
 
-    def _tbtn(self, text, tip):
-        b = QPushButton(text); b.setToolTip(tip); b.setFixedSize(30, 22)
+    def _tbtn(self, text, tip, primary=False):
+        b = QPushButton(text); b.setToolTip(tip)
+        b.setFixedSize(36 if primary else 30, 24 if primary else 22)
         b.setCursor(Qt.CursorShape.PointingHandCursor)
+        bg = T.brand.blue_deep if primary else T.surface.card
+        weight = 'bold' if primary else 'normal'
         b.setStyleSheet(
-            f'QPushButton {{ background: {T.surface.card}; color: {T.text.primary}; '
-            f'border: 1px solid {T.border.default}; border-radius: 3px; font-size: 12px; }} '
+            f'QPushButton {{ background: {bg}; color: {T.text.primary}; '
+            f'border: 1px solid {T.border.default}; border-radius: 3px; '
+            f'font-size: 12px; font-weight: {weight}; }} '
             f'QPushButton:hover {{ border-color: {T.border.active}; }}')
         return b
 
@@ -294,27 +312,62 @@ class TimelineTransport(QWidget):
             return tm.log_span()
         return 0.0, 0.0
 
+    def _play(self, direction):
+        """Start playing in the given direction (+1 forward, -1 reverse)."""
+        self._direction = 1 if direction >= 0 else -1
+        t0, t1 = self._span()
+        if t1 <= t0:
+            return
+        cur = self._app.cursor_time
+        if self._direction > 0 and cur >= t1:      # at end → rewind to start
+            self._app.set_cursor_time(t0)
+        elif self._direction < 0 and cur <= t0:    # at start → jump to end
+            self._app.set_cursor_time(t1)
+        self._playing = True
+        self._timer.start()
+        self._update_play_icon()
+
     def toggle_play(self):
         if self._playing:
-            self._playing = False; self._timer.stop(); self._play_btn.setText('▶')
+            self._stop()
         else:
-            t0, t1 = self._span()
-            if t1 <= t0:
-                return
-            if self._app.cursor_time >= t1:
-                self._app.set_cursor_time(t0)
-            self._playing = True; self._timer.start(); self._play_btn.setText('⏸')
+            self._play(self._direction)
 
-    def _reset(self):
-        self._playing = False; self._timer.stop(); self._play_btn.setText('▶')
+    def step(self, dt: float):
+        """Single-step the cursor by dt seconds (pauses playback)."""
+        self._stop()
+        t0, t1 = self._span()
+        if t1 <= t0:
+            return
+        self._app.set_cursor_time(min(max(self._app.cursor_time + dt, t0), t1))
+
+    def _to_start(self):
+        self._stop()
         t0, _ = self._span()
         self._app.set_cursor_time(t0)
+
+    # kept for back-compat (older callers / tests)
+    def _reset(self):
+        self._to_start()
+
+    def _stop(self):
+        self._playing = False
+        self._timer.stop()
+        self._update_play_icon()
+
+    def _update_play_icon(self):
+        self._play_btn.setText('⏸' if self._playing else '▶')
 
     def _tick(self):
         t0, t1 = self._span()
         if t1 <= t0:
-            self._timer.stop(); self._playing = False; self._play_btn.setText('▶'); return
-        t = self._app.cursor_time + 0.033 * self._speed
+            self._stop(); return
+        t = self._app.cursor_time + 0.033 * self._speed * self._direction
+        stop = False
         if t >= t1:
-            t = t1; self._playing = False; self._timer.stop(); self._play_btn.setText('▶')
+            t, stop = t1, True
+        elif t <= t0:
+            t, stop = t0, True
         self._app.set_cursor_time(t)
+        if stop:
+            self._stop()

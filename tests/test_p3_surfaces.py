@@ -33,25 +33,25 @@ def _data(n=400, dur=100.0):
     }
 
 
-class TestReplayDrivesCursor:
-    def test_replay_time_advances_shared_cursor(self, qtbot):
+class TestTransportDrivesCursor:
+    def test_transport_play_advances_shared_cursor(self, qtbot):
         from ui.main_window import MainWindow
         w = MainWindow(); qtbot.addWidget(w)
         w.data_ready.emit(_data())
-        w._tab_3d._replay.set_range(0.0, 100.0)
+        w._app_state.set_cursor_time(0.0)
         seen = []
         w._app_state.cursor_time_changed.connect(lambda t: seen.append(t))
-        w._tab_3d._replay.time_changed.emit(42.0)        # a playback tick
-        assert w._app_state.cursor_time == pytest.approx(42.0)
-        assert seen and seen[-1] == pytest.approx(42.0)
+        w._transport._speed = 5.0
+        w._transport.toggle_play(); w._transport._tick(); w._transport._stop()
+        assert w._app_state.cursor_time > 0.0            # playback advanced the cursor
+        assert seen and seen[-1] == pytest.approx(w._app_state.cursor_time)
 
     def test_playback_updates_other_surfaces(self, qtbot):
         from ui.main_window import MainWindow
         w = MainWindow(); qtbot.addWidget(w)
         w.data_ready.emit(_data())
-        w._tab_3d._replay.set_range(0.0, 100.0)
-        w._tab_3d._replay.time_changed.emit(50.0)
-        # the dock context (a cursor subscriber) reflects the replay time
+        w._app_state.set_cursor_time(50.0)               # a transport playback position
+        # the dock context (a cursor subscriber) reflects the time
         assert w._cursor_dock.context._vals['time'].text() == '50.00 s'
         # the horizon (a cursor subscriber) followed too
         assert w._mod_situation.horizon._win is not None
