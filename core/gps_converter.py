@@ -17,6 +17,8 @@ def lla_to_enu(lat: float, lon: float, alt: float,
 def gps_df_to_enu(gps_df, lat_col='Lat', lng_col='Lng', alt_col='Alt'):
     if gps_df is None or gps_df.empty:
         return None
+    if lat_col not in gps_df.columns or lng_col not in gps_df.columns:
+        return None                 # source carries no position → caller falls through
     lats = gps_df[lat_col].values
     lngs = gps_df[lng_col].values
     alts = gps_df[alt_col].values if alt_col in gps_df.columns else np.zeros(len(lats))

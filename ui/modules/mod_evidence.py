@@ -227,6 +227,9 @@ class EvidenceModule(QWidget):
         if not snaps and report is None:
             return
         meta = self._app.evidence_meta()
+        geo = self._geo_facts()                       # nearest airport/runway (M6)
+        if geo is not None:
+            meta = {**meta, 'geo': geo}
         base = os.path.splitext(os.path.basename(meta.get('log_path') or 'flight'))[0]
         default = f'{base}_evidence.{ "md" if kind=="md" else kind }'
         filt = {'json': 'JSON (*.json)', 'md': 'Markdown (*.md)', 'pdf': 'PDF (*.pdf)'}[kind]
@@ -247,6 +250,11 @@ class EvidenceModule(QWidget):
                     fp = os.path.join(pdir, f'finding_{i + 1}.png')
                     if render_finding_plot(self._app.data, f, fp):
                         plot_paths[i] = f'{base}_plots/finding_{i + 1}.png'
+            if geo is not None:                       # map snapshot (scale bar + N)
+                mdir = os.path.join(os.path.dirname(path), f'{base}_plots')
+                os.makedirs(mdir, exist_ok=True)
+                if self._render_map_snapshot(os.path.join(mdir, 'map.png')):
+                    geo['map_image'] = f'{base}_plots/map.png'
             with open(path, 'w') as f:
                 f.write(ex.to_markdown(snaps, meta, report, plot_paths))
         else:
@@ -260,7 +268,62 @@ class EvidenceModule(QWidget):
                         url = QUrl.fromLocalFile(fp)
                         plot_urls[i] = url.toString()
                         resources.append((url, fp))
+            if geo is not None:                       # map snapshot (scale bar + N)
+                mp = os.path.join(tmp, 'map.png')
+                if self._render_map_snapshot(mp):
+                    url = QUrl.fromLocalFile(mp)
+                    geo['map_image'] = url.toString()
+                    resources.append((url, mp))
             export_pdf(ex.to_markdown(snaps, meta, report, plot_urls), path,
                        title=f'TARAlytics Evidence — {base}', image_resources=resources)
         self._count.setText(f'exported {os.path.basename(path)} '
                             f'({len(snaps)} snapshots, {len(report.findings) if report else 0} findings)')
+
+    # ── geographic context (M6) ─────────────────────────────────────────────
+    def _geo_facts(self):
+        """Nearest aerodrome + runway to the flight's home, from OurAirports.
+        Returns None for non-geographic (SIM/(0,0)) logs or when no data."""
+        data = self._app.data
+        if not data:
+            return None
+        from core.gps_converter import best_trajectory
+        from core.basemap.aviation import AviationData
+        try:
+            traj = best_trajectory(data)
+        except Exception:
+            return None
+        if traj is None:
+            return None
+        lat0 = float(traj.get('origin_lat', 0.0))
+        lon0 = float(traj.get('origin_lon', 0.0))
+        if abs(lat0) < 1e-3 and abs(lon0) < 1e-3:
+            return None
+        av = AviationData.load()
+        geo = {'home': {'lat': lat0, 'lon': lon0}}
+        na = av.nearest_airport(lat0, lon0)
+        if na:
+            a, d = na
+            geo['nearest_airport'] = {'ident': a.ident, 'name': a.name, 'dist_m': d}
+        nr = av.nearest_runway(lat0, lon0)
+        if nr:
+            r, d = nr
+            geo['nearest_runway'] = {'designator': r.designator,
+                                     'airport': r.airport_ident, 'dist_m': d}
+        return geo
+
+    def _render_map_snapshot(self, out_path) -> bool:
+        """Render a deterministic Map snapshot (backdrop + overlays + track +
+        scale bar + north arrow) to out_path. Returns True on success."""
+        from PyQt6.QtWidgets import QApplication
+        from ui.tab_map_view import MapTab
+        from ui.map_export import render_map_png
+        try:
+            tab = MapTab(); tab.resize(900, 650)
+            tab.update_data(self._app.data)
+            tab._fit_view()
+            QApplication.processEvents()
+            render_map_png(tab, path=out_path)
+            tab.deleteLater()
+            return os.path.isfile(out_path)
+        except Exception:
+            return False

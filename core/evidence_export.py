@@ -48,6 +48,33 @@ def _verification_md(meta: dict) -> list:
     return lines
 
 
+def _geo_md(meta: dict) -> list:
+    """Markdown lines for the Geographic Context section (M6): nearest aerodrome /
+    runway + the map snapshot (which itself carries the scale bar + north arrow)."""
+    geo = meta.get('geo')
+    if not geo:
+        return []
+    lines = ['## Geographic Context', '']
+    h = geo.get('home')
+    if h:
+        lines += [f"**Home:** {h['lat']:.6f}, {h['lon']:.6f}  ", '']
+    na = geo.get('nearest_airport')
+    if na:
+        name = f" — {na['name']}" if na.get('name') else ''
+        lines += [f"**Nearest aerodrome:** {na['ident']}{name} "
+                  f"({na['dist_m'] / 1000:.1f} km)  ", '']
+    nr = geo.get('nearest_runway')
+    if nr:
+        ap = f" @ {nr['airport']}" if nr.get('airport') else ''
+        lines += [f"**Nearest runway:** {nr['designator']}{ap} "
+                  f"({nr['dist_m'] / 1000:.1f} km)  ", '']
+    img = geo.get('map_image')
+    if img:
+        lines += [f'![Map snapshot]({img})', '']
+    lines += ['---', '']
+    return lines
+
+
 def _f(v, fmt='{:.2f}', unit='', none='—'):
     if v is None:
         return none
@@ -77,6 +104,8 @@ def build_report(snapshots: list, meta: dict | None = None, report=None) -> dict
     }
     if report is not None:
         out['flight_assessment'] = report.to_dict()
+    if meta.get('geo'):
+        out['geographic_context'] = meta['geo']
     return out
 
 
@@ -250,6 +279,7 @@ def to_markdown(snapshots: list, meta: dict | None = None, report=None,
     head += [f"**Snapshots:** {len(snapshots)}", '', '---', '']
 
     body = list(_verification_md(meta))
+    body.extend(_geo_md(meta))
     if report is not None:
         body.append(_conclusion_md(report))
         body.append(_findings_md(report, plot_paths))
