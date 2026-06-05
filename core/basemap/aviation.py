@@ -21,6 +21,7 @@ import pandas as pd
 
 from core.basemap import projection as P
 from core.basemap.sources import default_base_dir
+from core.basemap.assets import bundled_ourairports_dir
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,11 @@ class AviationData:
     @classmethod
     def load(cls, base_dir: Optional[str] = None) -> 'AviationData':
         d = _ourairports_dir(base_dir)
+        # fall back to the bundled CSVs if the user dir has none
+        if not os.path.isfile(os.path.join(d, 'airports.csv')):
+            bundled = bundled_ourairports_dir()
+            if os.path.isfile(os.path.join(bundled, 'airports.csv')):
+                d = bundled
         cached = _CACHE.get(d)
         if cached is not None:
             return cached

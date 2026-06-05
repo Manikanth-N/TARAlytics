@@ -22,9 +22,10 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('assets/icon.ico', 'assets'),
-        ('core',            'core'),
-        ('ui',              'ui'),
+        ('assets/icon.ico',  'assets'),
+        ('assets/basemap',   'assets/basemap'),   # offline world base + OurAirports
+        ('core',             'core'),
+        ('ui',               'ui'),
     ] + pyqtgraph_datas + opengl_datas + pyqt6_datas,
     hiddenimports=[
         # Cryptography

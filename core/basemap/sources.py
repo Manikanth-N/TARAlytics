@@ -26,6 +26,7 @@ import glob
 from typing import NamedTuple, Optional
 
 from core.basemap.pmtiles_reader import PMTilesReader
+from core.basemap.assets import bundled_basemap_dir
 
 
 def default_base_dir() -> str:
@@ -63,10 +64,13 @@ class BasemapSources:
             d = os.path.join(self.base_dir, sub)
             for path in sorted(glob.glob(os.path.join(d, '*.pmtiles'))):
                 self._open(path)
-        # bundled world bases (lowest detail, always last)
+        # bundled world bases (lowest detail, always last) — prefer a user copy in
+        # base_dir, else fall back to the read-only asset shipped with the app.
+        bdir = bundled_basemap_dir()
         for style, fname in _STYLE_BASE.items():
-            path = os.path.join(self.base_dir, fname)
-            r = self._open(path)
+            r = self._open(os.path.join(self.base_dir, fname))
+            if r is None:
+                r = self._open(os.path.join(bdir, fname))
             if r is not None:
                 self._bases[style] = r
 

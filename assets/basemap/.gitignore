@@ -1,0 +1,6 @@
+# The large basemap data artifacts are generated at build time by
+# scripts/build_basemap_assets.py (z0–z7 world base ≈ 150–300 MB; OurAirports
+# CSVs ≈ a few MB). They are NOT committed to git — only ATTRIBUTION.txt and
+# README.md are tracked so the directory and licensing always ship.
+*.pmtiles
+ourairports/*.csv

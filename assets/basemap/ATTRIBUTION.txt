@@ -1,0 +1,14 @@
+TARAlytics — Offline Basemap Data Attribution
+=============================================
+
+Basemap tiles (world-base.pmtiles, z0–z7: roads, rivers, place names, land use)
+  © OpenStreetMap contributors.
+  Data licensed under the Open Database License (ODbL) v1.0.
+  https://www.openstreetmap.org/copyright   https://opendatacommons.org/licenses/odbl/
+
+Aerodrome & runway data (ourairports/airports.csv, ourairports/runways.csv)
+  Source: OurAirports — https://ourairports.com/data/
+  Released into the public domain by OurAirports.
+
+This attribution is shipped with the application and surfaced in the Map view
+corner and in exported evidence reports, per ODbL attribution requirements.
