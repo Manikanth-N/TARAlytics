@@ -101,14 +101,83 @@ class TestVerifySimplified:
         sp = verify._sig_panel
         assert sp._badge.text() == vmodel.info('VERIFIED').label
         assert sp._op_lbl.text() == vmodel.info('VERIFIED').operational_meaning
-        assert sp._guidance_lbl.text().startswith('Investigator guidance:')
-        assert vmodel.info('VERIFIED').investigator_guidance in sp._guidance_lbl.text()
+        assert sp._guidance_lbl.text() == vmodel.info('VERIFIED').investigator_guidance
 
     def test_partial_state_presentation(self, verify):
         verify.update_verification({'state': 'PARTIAL'})
         sp = verify._sig_panel
         assert sp._badge.text() == vmodel.info('PARTIAL').label
         assert sp._op_lbl.text() == vmodel.info('PARTIAL').operational_meaning
+
+
+# ── Verify panel 4-zone hierarchy redesign ───────────────────────────────────
+class TestVerifyHierarchy:
+    @pytest.fixture
+    def panel(self, qtbot):
+        from ui.widgets.signature_panel import SignaturePanel
+        sp = SignaturePanel(); qtbot.addWidget(sp)
+        return sp
+
+    def test_technical_collapsed_by_default(self, panel):
+        assert panel._tech_body.isHidden() is True          # Zone 4 hidden
+        assert panel._tech_open is False
+        panel._toggle_technical()
+        assert panel._tech_open is True and panel._tech_body.isHidden() is False
+        panel._toggle_technical()
+        assert panel._tech_open is False and panel._tech_body.isHidden() is True
+
+    def test_verification_completed_timestamp(self, panel):
+        panel.update_verification({'state': 'VERIFIED'})
+        assert panel._verified_at.text().startswith('Verification completed ')
+
+    def test_usable_for_verified(self, panel):
+        panel.update_verification({'state': 'VERIFIED'})
+        marks = self._marks(panel)
+        assert marks == [('✓', 'Flight Review'), ('✓', 'Evidence Generation'),
+                         ('✓', 'Certification Review')]
+
+    def test_usable_for_unsigned(self, panel):
+        panel.update_verification({'state': 'UNSIGNED'})
+        assert self._marks(panel) == [('✓', 'Flight Review'), ('⚠', 'Evidence Generation'),
+                                      ('✗', 'Certification Review')]
+
+    def test_usable_for_invalid_all_blocked(self, panel):
+        panel.update_verification({'state': 'INVALID'})
+        assert all(m == '✗' for m, _ in self._marks(panel))
+
+    def test_usable_for_unknown_single_action(self, panel):
+        panel.update_verification({'state': 'UNKNOWN'})
+        assert self._marks(panel) == [('⏳', 'Load Key To Confirm')]
+
+    def test_usable_for_wrong_key_action(self, panel):
+        panel.update_verification({'state': 'WRONG_KEY'})
+        assert self._marks(panel) == [('⏳', 'Load Correct Key')]
+
+    def test_hero_tone_color_changes_with_state(self, panel):
+        panel.update_verification({'state': 'VERIFIED'})
+        good = panel._badge.styleSheet()
+        panel.update_verification({'state': 'INVALID'})
+        bad = panel._badge.styleSheet()
+        assert good != bad and '#00C896' in good and '#FF3D3D' in bad
+
+    def test_details_populated(self, panel):
+        panel.update_verification({
+            'state': 'VERIFIED', 'structure_ok': True, 'chain_ok': True,
+            'chain_chunks': 128, 'detail': 'Signature valid',
+            'hashes': {'data_start': 0, 'data_len': 1000}})
+        assert '1,000' in panel._range_val.text()
+        assert 'PASS' in panel._struct_val.text()
+        assert '128' in panel._chain_val.text()
+        assert panel._sig_val.text() == 'Signature valid'
+
+    @staticmethod
+    def _marks(panel):
+        out = []
+        for i in range(panel._usable_box.count()):
+            row = panel._usable_box.itemAt(i).widget()
+            labels = row.findChildren(type(panel._badge))
+            out.append((labels[0].text(), labels[1].text()))
+        return out
 
 
 # ── Transport is the single playback controller (directional) ────────────────
